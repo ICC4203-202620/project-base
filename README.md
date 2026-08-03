@@ -88,7 +88,7 @@ Una vez aceptada la invitación, los grupos podrán crear libremente ramas local
 Los profesores del curso continuarán trabajando sobre el repositorio con el código base durante el semestre, tanto para remediar posibles bugs como para proveer nuevas funciones relevantes para alguna de las entregas. Para que los grupos puedan actualizar su repositorio con nuevos lanzamientos del código base, deben agregar el repositorio de los profesores como origen remoto adicional:
 
 ```sh
-git remote add upstream <URL del repositorio de código base del curso>
+git remote add upstream https://github.com/ICC4203-202620/project-base.git
 ```
 
 Luego, para aplicar en el repositorio local los cambios que se encuentren en dicho repositorio:
