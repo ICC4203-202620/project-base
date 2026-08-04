@@ -1,0 +1,62 @@
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editores e IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Variables de entorno y credenciales
+.env
+.env.*
+!.env.example
+*.pem
+credentials.json
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Python (backend, FastAPI) ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+*.sqlite3
+
+# --- JavaScript / Node (PWA y frontend React) ---
+node_modules/
+dist/
+dist-ssr/
+build/
+.vite/
+.parcel-cache/
+.cache/
+coverage/
+.eslintcache
+*.tsbuildinfo
+
+# --- AWS y serverless (entrega 4) ---
+.serverless/
+.aws-sam/
+cdk.out/
+.dynamodb/
+shared-local-instance.db

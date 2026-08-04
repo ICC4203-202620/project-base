@@ -71,9 +71,19 @@ La funcionalidad a desarrollar se organiza en las siguientes épicas. En las ent
   2. **Primera aplicación funcional (entrega 2)**: desarrollo de una PWA (_Progressive Web Application_) que consume los _endpoints_ de un backend. El backend, con persistencia en DynamoDB, les será entregado; el trabajo del grupo está en el lado del cliente. Las vistas de esta entrega se construyen con HTML simple, para concentrar el esfuerzo en el consumo de la API y en las capacidades de una PWA.
   3. **Frontend completo (entrega 3)**: desarrollo completo del frontend de la aplicación usando React, sobre el diseño elaborado en la entrega 1.
   4. **Backend serverless (entrega 4)**: migración del backend monolítico a una arquitectura _serverless_ sobre AWS Lambda, con foco en la escalabilidad de la aplicación.
-* La información se persiste en **DynamoDB**, una base de datos NoSQL. Esto tiene consecuencias importantes sobre cómo se modela la información: el diseño de los datos se hace en función de los patrones de acceso de la aplicación, y no siguiendo la normalización propia de las bases de datos relacionales. Los enunciados específicos abordarán esto en su momento.
+* La información se persiste en **DynamoDB**, una base de datos NoSQL. Esto tiene consecuencias importantes sobre cómo se modela la información: el diseño de los datos se hace en función de los patrones de acceso de la aplicación, y no siguiendo la normalización propia de las bases de datos relacionales. La mayor parte del trabajo de implementación del backend, incluyendo la capa de datos, será proporcionado en el código base próximamente.
 * Las épicas de **mapa y cercanía** (4 y 5) se apoyan en servicios externos de mapas y lugares, como Google Maps Platform, para desplegar el mapa, buscar establecimientos y obtener la posición del usuario. Estos servicios requieren claves de API y están sujetos a cuotas, por lo que el alcance final de estas épicas se precisará según su factibilidad. En caso de restricciones, se acordará una alternativa acotada a los restaurantes ya registrados en la aplicación.
 * El **contenido multimedia** se limita a fotografías. No se contempla video.
+
+## Estructura del repositorio
+
+```
+docs/        Enunciados de las entregas y documentación del proyecto.
+frontend/    Aplicación cliente: la PWA de la entrega 2 y el frontend React de la entrega 3.
+backend/     Aplicación de backend, que será provista por el equipo docente.
+```
+
+El directorio `backend` se incorporará al código base cuando comience la entrega 2.
 
 ## Uso del repositorio
 
