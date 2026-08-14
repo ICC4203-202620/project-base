@@ -5,8 +5,8 @@ Durante este semestre, el proyecto del curso consistirá en el desarrollo de una
 La aplicación se articula en torno a tres ideas:
 
 * **Descubrir**: encontrar dónde comer, sea buscando un restaurante por su nombre, explorando un mapa, o preguntando qué hay cerca de mí de un cierto estilo de comida.
-* **Registrar**: dejar constancia de las visitas y de lo que se comió, con fotografías de los platos y del menú, reseñas y evaluaciones.
-* **Compartir**: seguir a otras personas cuyo criterio gastronómico interesa, ver su actividad, conversar en torno a las fotografías y saber si alguien de confianza ya estuvo en el restaurante que estoy mirando.
+* **Registrar**: dejar constancia de las visitas y de lo que se comió, con fotografías de los platos, del menú y de las instalaciones, reseñas y evaluaciones.
+* **Compartir**: seguir a otras personas cuyo criterio gastronómico interesa y a restaurantes de interés, ver su actividad, conversar en torno a las fotografías y saber si alguien de confianza ya estuvo en el restaurante que estoy mirando.
 
 El valor de la aplicación está en la combinación de las tres: el descubrimiento se enriquece con lo que ha registrado la comunidad, y en particular con lo que han registrado las personas que cada usuario decidió seguir.
 
@@ -21,46 +21,50 @@ Para entender la funcionalidad descrita más adelante, conviene fijar el signifi
 * **Estilo de comida**: La categoría gastronómica que caracteriza a un restaurante (peruana, japonesa, italiana, vegetariana, etc.). Un restaurante puede tener más de una.
 * **Visita** (_check-in_): El registro de que un usuario estuvo en un restaurante en un momento determinado.
 * **Plato**: Una preparación ofrecida por un restaurante. Es aquello sobre lo que los usuarios publican fotografías y opinan.
-* **Fotografía**: Una imagen publicada por un usuario en un restaurante. Puede ser la foto de un plato o la foto del menú del establecimiento.
-* **Reseña**: La opinión de un usuario sobre un plato, expresada con una calificación y un texto, a propósito de una fotografía publicada.
+* **Fotografía**: Una imagen publicada por un usuario en un restaurante. Puede mostrar un plato, el menú o las instalaciones del establecimiento. Las fotografías pueden recibir comentarios. Cada reseña de un plato se asocia a una sola fotografía; una evaluación de un restaurante puede asociarse a una o más fotografías de su menú o sus instalaciones.
+* **Reseña**: La opinión de un usuario sobre un plato, expresada con una calificación y un texto, a propósito de una única fotografía publicada.
 * **Comentario**: La conversación que se produce en torno a una fotografía. Los comentarios pueden responder a otros comentarios, formando un _thread_.
-* **Etiqueta**: La mención de un usuario en una fotografía, para indicar que estuvo ahí o que la publicación le concierne.
-* **Evaluación**: La valoración que un usuario hace de un restaurante como un todo. Considera varios criterios (por ejemplo, comida, servicio, ambiente y relación precio/calidad) y un comentario general.
-* **Seguimiento**: La decisión de un usuario de seguir a otro para enterarse de su actividad. Es una relación dirigida: seguir a alguien no implica ser seguido de vuelta.
-* **Feed**: La vista cronológica de la actividad reciente de las personas que un usuario sigue.
+* **Evaluación**: La valoración que un usuario hace de un restaurante como un todo. Considera varios criterios (por ejemplo, comida, servicio, ambiente y relación precio/calidad) y un comentario general. Puede asociarse a una o más fotografías del menú o de las instalaciones.
+* **Seguimiento**: La decisión de un usuario de seguir a otra persona o a un restaurante para enterarse de la actividad que publica. Seguir a una persona es una relación dirigida: seguirla no implica ser seguido de vuelta.
+* **Feed**: La vista cronológica de la actividad reciente de las personas que un usuario sigue y de la actividad publicada en torno a los restaurantes que sigue.
+* **Actividad pública**: Una visita, fotografía, reseña o evaluación que el usuario decide compartir con la comunidad. Puede aparecer en su perfil público, en el _feed_ y en las fichas de los restaurantes correspondientes.
+* **Actividad privada**: Una visita, fotografía, reseña o evaluación que el usuario decide conservar solo para sí. Puede consultarla desde su propio perfil, pero no es visible para otros usuarios ni se incorpora al _feed_ o a la actividad pública de un restaurante.
+* **Notificación**: Un aviso de actividad nueva relacionada con una persona o un restaurante que el usuario sigue. Una misma actividad debe producir un único aviso, aunque sea relevante por más de una relación de seguimiento.
 
 ## Funcionalidad de la Aplicación
 
-La funcionalidad a desarrollar se organiza en las siguientes épicas. En las entregas sucesivas se irá solicitando implementar funcionalidad relativa a estas épicas, con mayor detalle sobre las funciones específicas y su alcance en cada una.
+La funcionalidad a desarrollar se organiza en las siguientes épicas. En las entregas sucesivas se irá solicitando implementar funcionalidades relativas a estas épicas, con mayor detalle sobre las funciones específicas y su alcance en cada una.
 
 ### Cuenta y perfil
 
 1. **Registro e inicio de sesión**: Una persona puede crear una cuenta indicando su nombre, correo electrónico, _handle_ y nacionalidad, y luego autenticarse para usar la aplicación.
-2. **Perfil de usuario**: Cada usuario tiene un perfil que reúne su actividad pública —visitas, fotografías, reseñas y evaluaciones— y que otros usuarios pueden consultar.
+2. **Perfil de usuario**: Cada usuario tiene un perfil con su _handle_, nombre y nacionalidad. Al consultar su propio perfil, ve tanto su actividad pública como su actividad privada —visitas, fotografías, reseñas y evaluaciones—; cuando otro usuario consulta ese mismo perfil, solo ve sus datos públicos y la actividad que decidió compartir.
 
 ### Descubrimiento de restaurantes
 
-3. **Buscar restaurante por nombre**: El usuario busca un restaurante escribiendo su nombre y accede a su ficha desde los resultados.
+3. **Buscar o crear un restaurante**: El usuario busca un restaurante escribiendo su nombre y accede a su ficha desde los resultados. Si no existe, puede crearlo indicando su nombre, dirección y estilos de comida. Antes de crear el registro, la aplicación debe prevenir duplicados mediante comprobaciones mínimas, como verificar que no exista otro restaurante con el mismo nombre y dirección, para que la información aportada por distintos usuarios se agrupe en una única ficha.
 4. **Explorar restaurantes en el mapa**: El usuario recorre libremente un mapa interactivo, desplazándose y acercándose sobre la zona que le interesa, y ve los restaurantes disponibles en ella.
 5. **Buscar por estilo de comida y cercanía**: El usuario busca restaurantes de un cierto estilo de comida a menos de una distancia dada desde donde se encuentra, y ve los resultados sobre el mapa y en una lista ordenada por distancia.
-6. **Ver un restaurante**: El usuario consulta la ficha de un restaurante: su información básica, sus estilos de comida, las fotografías de platos y de menú publicadas por la comunidad, y el resumen de sus evaluaciones.
+6. **Ver un restaurante**: El usuario consulta la ficha de un restaurante: su información básica, sus estilos de comida, las fotografías de platos, menús e instalaciones publicadas por la comunidad, y el resumen de sus evaluaciones.
 
 ### Registro de la experiencia
 
+Al registrar una actividad, el usuario decide si será pública o privada. La visibilidad elegida determina quién podrá verla y si se incorporará al _feed_, a las notificaciones y a la actividad pública del restaurante correspondiente.
+
 7. **Hacer check-in en un restaurante**: El usuario registra que está o estuvo en un restaurante.
 8. **Publicar la foto de un plato**: El usuario sube la fotografía de un plato que probó, identificando de qué plato se trata.
-9. **Publicar la foto del menú**: El usuario sube la fotografía del menú de un restaurante, de modo que la comunidad conozca su oferta y sus precios.
-10. **Reseñar un plato**: El usuario añade una reseña a la fotografía de un plato, con una calificación y un texto que describe su experiencia.
-11. **Evaluar un restaurante**: El usuario califica un restaurante en varios criterios de evaluación y agrega un comentario general. La aplicación muestra el resumen de las evaluaciones recibidas por cada restaurante.
+9. **Publicar fotos del menú o de las instalaciones**: El usuario sube una o más fotografías del menú o de los espacios de un restaurante, de modo que la comunidad conozca su oferta, sus precios y sus instalaciones.
+10. **Reseñar un plato**: El usuario añade una reseña a la fotografía de un plato, con una calificación y un texto que describe su experiencia. Cada reseña se asocia exactamente a una fotografía del plato.
+11. **Evaluar un restaurante**: El usuario califica un restaurante en varios criterios de evaluación y agrega un comentario general. Puede asociar a la evaluación una o más fotografías del menú o de las instalaciones. La aplicación muestra el resumen de las evaluaciones recibidas por cada restaurante.
 
 ### Interacción social
 
 12. **Buscar usuarios por handle**: El usuario encuentra a otras personas por su _handle_ y llega a su perfil.
-13. **Seguir y dejar de seguir usuarios**: El usuario decide de quiénes quiere enterarse, y puede revertir esa decisión.
-14. **Ver el feed**: El usuario ve, en orden cronológico, la actividad reciente de las personas que sigue.
-15. **Ver visitas de personas conocidas en un restaurante**: Al mirar la ficha de un restaurante, el usuario ve si alguna de las personas que sigue estuvo ahí alguna vez, y cuándo.
-16. **Comentar fotografías**: Los usuarios conversan en torno a una fotografía, respondiéndose entre sí en un _thread_ de comentarios.
-17. **Etiquetar usuarios en fotografías**: El usuario menciona a otras personas en las fotografías de platos o de menús que publica.
+13. **Seguir y dejar de seguir usuarios**: El usuario decide de quiénes quiere enterarse mediante su _feed_ y sus notificaciones, y puede revertir esa decisión.
+14. **Seguir y dejar de seguir restaurantes**: El usuario decide de qué restaurantes quiere enterarse, y puede revertir esa decisión. Recibe notificaciones cuando se publica actividad relevante en torno a ellos. Si una misma actividad está relacionada tanto con una persona como con un restaurante que sigue, recibe una sola notificación.
+15. **Ver el feed**: El usuario ve, en orden cronológico, la actividad reciente de las personas que sigue y la actividad publicada en torno a los restaurantes que sigue. Una misma actividad aparece una sola vez, aunque coincida con más de un criterio de seguimiento.
+16. **Ver visitas de personas conocidas en un restaurante**: Al mirar la ficha de un restaurante, el usuario ve si alguna de las personas que sigue estuvo ahí alguna vez, y cuándo, siempre que esas visitas sean públicas.
+17. **Comentar fotografías**: Los usuarios conversan en torno a una fotografía pública, respondiéndose entre sí en un _thread_ de comentarios.
 
 ## Alcances del Desarrollo
 
@@ -68,22 +72,20 @@ La funcionalidad a desarrollar se organiza en las siguientes épicas. En las ent
 * La evolución del proyecto a lo largo del semestre es la siguiente:
 
   1. **Diseño (entrega 1)**: diseño completo de la aplicación en Figma. El enunciado general que están leyendo es el insumo para ese diseño: define qué hace la aplicación, no cómo se ve ni cómo se implementa.
-  2. **Primera aplicación funcional (entrega 2)**: desarrollo de una PWA (_Progressive Web Application_) que consume los _endpoints_ de un backend. El backend, con persistencia en DynamoDB, les será entregado; el trabajo del grupo está en el lado del cliente. Las vistas de esta entrega se construyen con HTML simple, para concentrar el esfuerzo en el consumo de la API y en las capacidades de una PWA.
-  3. **Frontend completo (entrega 3)**: desarrollo completo del frontend de la aplicación usando React, sobre el diseño elaborado en la entrega 1.
+  2. **Prueba de concepto (entrega 2)**: desarrollo de una PWA (_Progressive Web Application_) que consume los _endpoints_ de un backend monolítico. Las vistas se construyen con HTML simple, para concentrar el esfuerzo en el consumo de la API y en las capacidades propias de una PWA: _manifest_, _service worker_ y notificaciones.
+  3. **Frontend completo (entrega 3)**: desarrollo completo del frontend de la aplicación usando React, sobre el diseño elaborado en la entrega 1 y las capacidades de PWA desarrolladas en la entrega 2.
   4. **Backend serverless (entrega 4)**: migración del backend monolítico a una arquitectura _serverless_ sobre AWS Lambda, con foco en la escalabilidad de la aplicación.
-* La información se persiste en **DynamoDB**, una base de datos NoSQL. Esto tiene consecuencias importantes sobre cómo se modela la información: el diseño de los datos se hace en función de los patrones de acceso de la aplicación, y no siguiendo la normalización propia de las bases de datos relacionales. La mayor parte del trabajo de implementación del backend, incluyendo la capa de datos, será proporcionado en el código base próximamente.
+* La información se persiste en **PostgreSQL**. Esta elección permitirá migrar con mayor facilidad la capa de datos a **Aurora DSQL**, un servicio distribuido y _serverless_ compatible con consultas PostgreSQL, durante la entrega 4.
 * Las épicas de **mapa y cercanía** (4 y 5) se apoyan en servicios externos de mapas y lugares, como Google Maps Platform, para desplegar el mapa, buscar establecimientos y obtener la posición del usuario. Estos servicios requieren claves de API y están sujetos a cuotas, por lo que el alcance final de estas épicas se precisará según su factibilidad. En caso de restricciones, se acordará una alternativa acotada a los restaurantes ya registrados en la aplicación.
 * El **contenido multimedia** se limita a fotografías. No se contempla video.
 
 ## Estructura del repositorio
 
-```
+```text
 docs/        Enunciados de las entregas y documentación del proyecto.
 frontend/    Aplicación cliente: la PWA de la entrega 2 y el frontend React de la entrega 3.
-backend/     Aplicación de backend, que será provista por el equipo docente.
+backend/     Aplicación de backend: la API REST de las entregas 2 y 3 y el backend serverless de la entrega 4.
 ```
-
-El directorio `backend` se incorporará al código base cuando comience la entrega 2.
 
 ## Uso del repositorio
 

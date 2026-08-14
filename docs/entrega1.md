@@ -44,10 +44,10 @@ En ambos casos aplica el mismo principio: "Material Design" como especificación
 
 El prototipo debe cubrir **todas las épicas** listadas en la sección "Funcionalidad de la Aplicación" del enunciado general, agrupadas en:
 
-* Cuenta y perfil: registro, inicio de sesión y perfil de usuario.
-* Descubrimiento de restaurantes: búsqueda por nombre, exploración en el mapa, búsqueda por estilo de comida y cercanía, y ficha del restaurante.
-* Registro de la experiencia: _check-in_, publicación de fotos de platos y de menú, reseña de un plato y evaluación de un restaurante.
-* Interacción social: búsqueda de usuarios por _handle_, seguir y dejar de seguir, _feed_, visitas de personas conocidas en un restaurante, comentarios en fotografías y etiquetado de usuarios.
+* Cuenta y perfil: registro, inicio de sesión y las dos vistas del perfil de usuario: la propia, que incluye actividad pública y privada, y la que consultan otras personas, limitada a la actividad pública.
+* Descubrimiento de restaurantes: búsqueda por nombre, creación de un restaurante que no existe con prevención de duplicados, exploración en el mapa, búsqueda por estilo de comida y cercanía, y ficha del restaurante.
+* Registro de la experiencia: _check-in_, publicación de fotos de platos, menús e instalaciones, reseña de un plato asociada a una única fotografía y evaluación de un restaurante asociada opcionalmente a una o más fotografías.
+* Interacción social: búsqueda de usuarios por _handle_, seguimiento de usuarios y restaurantes, _feed_, notificaciones sin duplicados, visitas públicas de personas conocidas en un restaurante y comentarios en fotografías públicas.
 
 El diseño debe ser **móvil**: las pantallas se diseñan para el tamaño de un teléfono, con la navegación, los tamaños de área táctil y las convenciones propias de una aplicación móvil. Recuerden que la aplicación se implementará primero como una PWA y luego con React, siempre en el contexto de un dispositivo móvil.
 
@@ -59,7 +59,7 @@ El prototipo debe ofrecer **interactividad básica**, entendida como:
 
 1. **Navegación completa**: debe ser posible recorrer la aplicación de extremo a extremo desde el prototipo, sin callejones sin salida. Toda pantalla debe ser alcanzable desde algún flujo, y debe permitir volver.
 2. **Interacción con elementos de formulario**: los campos de texto, selectores, controles de calificación y botones de los formularios deben responder a la interacción, mostrando por ejemplo el estado de un campo enfocado, una opción seleccionada o una calificación asignada.
-3. **Flujos completos**: las acciones principales deben poder ejecutarse de principio a fin en el prototipo. Por ejemplo, buscar un restaurante, entrar a su ficha, hacer _check-in_, subir la foto de un plato y publicar su reseña.
+3. **Flujos completos**: las acciones principales deben poder ejecutarse de principio a fin en el prototipo. Por ejemplo, buscar un restaurante, entrar a su ficha, hacer _check-in_, escoger la visibilidad de la actividad, subir la foto de un plato y publicar su reseña. También debe poder apreciarse el efecto de seguir a un usuario o restaurante tanto en el _feed_ como en las notificaciones, incluida la deduplicación cuando una misma actividad coincide con ambos seguimientos.
 
 No se espera lógica de negocio, datos reales ni animaciones sofisticadas. Sí se espera que una persona ajena al grupo pueda tomar el prototipo y usar la aplicación sin explicaciones adicionales.
 
