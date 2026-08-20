@@ -19,7 +19,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://foodie:foodie@db:5432/foodie
-      JWT_SECRET: ${JWT_SECRET:-development-only-change-me}
+      JWT_SECRET: ${JWT_SECRET:-development-only-change-me-change-me}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       LOCAL_TLS: ${LOCAL_TLS:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}

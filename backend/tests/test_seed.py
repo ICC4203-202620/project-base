@@ -35,7 +35,7 @@ def test_seed_creates_development_user_once(monkeypatch):
     monkeypatch.setattr(seed_module.settings, "seed_demo_user", True)
 
     assert seed_module.seed() is True
-    assert connection.inserted_values["email"] == "demo@foodie.local"
+    assert connection.inserted_values["email"] == "demo@example.com"
     assert connection.inserted_values["handle"] == "@demo"
     assert isinstance(connection.inserted_values["id"], UUID)
 
