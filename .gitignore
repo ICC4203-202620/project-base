@@ -1,5 +1,6 @@
 # Sistema operativo
 .DS_Store
+certs/
 Thumbs.db
 
 # Editores e IDEs
