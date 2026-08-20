@@ -47,30 +47,105 @@ base migrada; no usa la base `db` de desarrollo.
 
 ## Teléfono: HTTPS y mDNS
 
-Las cookies `Secure` requieren HTTPS. En macOS y Linux con Avahi/Bonjour, usa el
-hostname mDNS del equipo, por ejemplo `mi-equipo.local`, y confirma que el
-teléfono está en la misma red sin aislamiento Wi-Fi.
+Las cookies con `Secure` requieren HTTPS. En macOS (Bonjour) y Linux con
+Avahi, el hostname mDNS del equipo suele estar disponible como
+`nombre-del-equipo.local`. El teléfono y computador deben estar en la misma
+red y la red Wi-Fi no debe tener aislamiento de clientes.
 
-1. Instala mkcert y su CA: en macOS, `brew install mkcert && mkcert -install`.
-2. En la raíz, crea certificados (sustituye el nombre):
+1. Comprueba el hostname mDNS. En macOS, ejecuta:
 
    ```sh
-   mkdir -p certs
-   mkcert -cert-file certs/local.pem -key-file certs/local-key.pem mi-equipo.local localhost 127.0.0.1
+   scutil --get LocalHostName
    ```
 
-3. Inicia con `LOCAL_TLS=true COOKIE_SECURE=true docker compose up --build`.
-   Agrega `https://mi-equipo.local:5173` a `CORS_ORIGINS` si corresponde.
-   `certs/` está ignorado y se monta de solo lectura.
-4. Abre `https://mi-equipo.local:8000/docs` en el teléfono.
+   Si devuelve `mi-mac`, usa `mi-mac.local` en los pasos siguientes.
+
+   En Debian, Ubuntu y derivados, instala y activa Avahi si aún no está
+   disponible. Estos comandos piden la contraseña de administrador:
+
+   ```sh
+   sudo apt update
+   sudo apt install avahi-daemon avahi-utils
+   sudo systemctl enable --now avahi-daemon
+   hostnamectl --static
+   systemctl status avahi-daemon --no-pager
+   ```
+
+   Si el nombre devuelto por `hostnamectl --static` es `mi-pc`, prueba que
+   Avahi lo publique con `avahi-resolve -n mi-pc.local`. La salida debe mostrar
+   una dirección IP de la red local. Si el servicio no queda activo, revisa el
+   mensaje de `systemctl status`; en redes corporativas también puede ser
+   necesario permitir mDNS (UDP 5353) en el firewall local.
+2. Instala mkcert y confía su CA local. En macOS:
+
+   ```sh
+   brew install mkcert
+   mkcert -install
+   ```
+
+   En Linux instala mkcert con el gestor de paquetes y ejecuta también
+   `mkcert -install`. Para que iOS o Android confíen el certificado, instala
+   la CA de mkcert en el dispositivo solo para desarrollo.
+3. Desde la raíz, genera el certificado. El helper guarda la clave y el
+   certificado bajo `certs/`, directorio ignorado por Git:
+
+   ```sh
+   ./scripts/create-local-certificate.sh mi-equipo.local
+   ```
+
+4. Inicia la API con TLS y cookie segura. Declara el origen exacto del frontend
+   si se sirve desde otro puerto:
+
+   ```sh
+   LOCAL_TLS=true COOKIE_SECURE=true \
+   CORS_ORIGINS=https://mi-equipo.local:5173 \
+   docker compose up --build
+   ```
+
+5. Desde el teléfono abre `https://mi-equipo.local:8000/healthz` y luego
+   `https://mi-equipo.local:8000/docs`. El login debe responder con una cookie
+   `Secure; HttpOnly; SameSite=Lax`.
+
+Si el hostname no resuelve, prueba primero la IP LAN para diagnosticar red y
+firewall, pero genera un nuevo certificado que incluya esa IP antes de usar
+HTTPS. `localhost` desde el teléfono siempre significa el propio teléfono.
 
 ### Windows + WSL
 
 WSL2 no siempre publica mDNS ni puertos hacia el teléfono. Usa Docker Desktop
-con integración WSL y el nombre o IP LAN del host Windows, generando el
-certificado para ese nombre. En Windows 11, `networkingMode=mirrored` en
-`.wslconfig` puede ayudar. Si no responde, permite TCP 8000 en el firewall.
-`localhost` en un teléfono se refiere al propio teléfono.
+con integración WSL y el nombre o IP LAN del host Windows; el certificado debe
+incluir exactamente el nombre o IP que abre el teléfono.
+
+En Windows 11, el modo de red reflejado puede simplificar esta conexión. El
+archivo `.wslconfig` no está dentro de Linux ni en `/home`: está en el perfil
+del usuario de **Windows**, por ejemplo
+`C:\Users\ana\.wslconfig` (también se puede abrir desde PowerShell con
+`notepad $env:USERPROFILE\.wslconfig`). Crea o edita ese archivo para incluir:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Guarda el archivo, abre PowerShell y ejecuta `wsl --shutdown`. Luego vuelve a
+abrir la distribución WSL y Docker Desktop. Si esa opción no está disponible en
+tu versión de Windows/WSL, omítela y usa la IP LAN o nombre del host Windows.
+
+Si el teléfono no logra conectar, comprueba que Docker publica el puerto en el
+host Windows y permite conexiones TCP entrantes al puerto 8000 en el Firewall
+de Windows. La ruta gráfica es **Seguridad de Windows → Firewall y protección
+de red → Configuración avanzada → Reglas de entrada**; crea una regla de puerto
+TCP 8000 solo para redes privadas si tu configuración lo requiere.
+
+### Diagnóstico rápido
+
+* `curl -k https://mi-equipo.local:8000/healthz` desde el computador descarta
+  errores de certificado y verifica que Uvicorn está sirviendo TLS.
+* Si funciona en el computador pero no en el teléfono, revisa mDNS, la CA
+  instalada en el teléfono, firewall y aislamiento Wi-Fi.
+* Si la API responde pero el navegador no conserva la sesión, verifica que el
+  frontend use HTTPS, que `COOKIE_SECURE=true` y que `CORS_ORIGINS` sea el
+  origen exacto; las solicitudes cross-origin deben enviar credenciales.
 
 ## Migraciones y Lambda
 
