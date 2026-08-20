@@ -52,8 +52,30 @@ Avahi, el hostname mDNS del equipo suele estar disponible como
 `nombre-del-equipo.local`. El teléfono y computador deben estar en la misma
 red y la red Wi-Fi no debe tener aislamiento de clientes.
 
-1. Comprueba el hostname mDNS. En macOS suele ser `$(scutil --get LocalHostName).local`;
-   en Linux, consulta `hostnamectl --static` y asegúrate de tener Avahi activo.
+1. Comprueba el hostname mDNS. En macOS, ejecuta:
+
+   ```sh
+   scutil --get LocalHostName
+   ```
+
+   Si devuelve `mi-mac`, usa `mi-mac.local` en los pasos siguientes.
+
+   En Debian, Ubuntu y derivados, instala y activa Avahi si aún no está
+   disponible. Estos comandos piden la contraseña de administrador:
+
+   ```sh
+   sudo apt update
+   sudo apt install avahi-daemon avahi-utils
+   sudo systemctl enable --now avahi-daemon
+   hostnamectl --static
+   systemctl status avahi-daemon --no-pager
+   ```
+
+   Si el nombre devuelto por `hostnamectl --static` es `mi-pc`, prueba que
+   Avahi lo publique con `avahi-resolve -n mi-pc.local`. La salida debe mostrar
+   una dirección IP de la red local. Si el servicio no queda activo, revisa el
+   mensaje de `systemctl status`; en redes corporativas también puede ser
+   necesario permitir mDNS (UDP 5353) en el firewall local.
 2. Instala mkcert y confía su CA local. En macOS:
 
    ```sh
@@ -92,10 +114,28 @@ HTTPS. `localhost` desde el teléfono siempre significa el propio teléfono.
 
 WSL2 no siempre publica mDNS ni puertos hacia el teléfono. Usa Docker Desktop
 con integración WSL y el nombre o IP LAN del host Windows; el certificado debe
-incluir exactamente el nombre o IP que abre el teléfono. En Windows 11,
-`networkingMode=mirrored` en `.wslconfig` puede ayudar. Si no responde,
-permite TCP 8000 en el firewall de Windows y comprueba que Docker publica el
-puerto en el host, no solo dentro de WSL.
+incluir exactamente el nombre o IP que abre el teléfono.
+
+En Windows 11, el modo de red reflejado puede simplificar esta conexión. El
+archivo `.wslconfig` no está dentro de Linux ni en `/home`: está en el perfil
+del usuario de **Windows**, por ejemplo
+`C:\Users\ana\.wslconfig` (también se puede abrir desde PowerShell con
+`notepad $env:USERPROFILE\.wslconfig`). Crea o edita ese archivo para incluir:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+Guarda el archivo, abre PowerShell y ejecuta `wsl --shutdown`. Luego vuelve a
+abrir la distribución WSL y Docker Desktop. Si esa opción no está disponible en
+tu versión de Windows/WSL, omítela y usa la IP LAN o nombre del host Windows.
+
+Si el teléfono no logra conectar, comprueba que Docker publica el puerto en el
+host Windows y permite conexiones TCP entrantes al puerto 8000 en el Firewall
+de Windows. La ruta gráfica es **Seguridad de Windows → Firewall y protección
+de red → Configuración avanzada → Reglas de entrada**; crea una regla de puerto
+TCP 8000 solo para redes privadas si tu configuración lo requiere.
 
 ### Diagnóstico rápido
 
