@@ -1,0 +1,23 @@
+[project]
+name = "foodie-backend"
+version = "0.1.0"
+requires-python = ">=3.13"
+dependencies = [
+  "alembic>=1.14,<2",
+  "argon2-cffi>=23.1,<24",
+  "email-validator>=2.2,<3",
+  "fastapi>=0.115,<1",
+  "mangum>=0.19,<1",
+  "psycopg[binary]>=3.2,<4",
+  "PyJWT>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "sqlalchemy>=2.0,<3",
+  "uvicorn[standard]>=0.34,<1",
+]
+[dependency-groups]
+dev = ["httpx>=0.28,<1", "pytest>=8.3,<9", "ruff>=0.9,<1"]
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+[tool.ruff]
+line-length = 100

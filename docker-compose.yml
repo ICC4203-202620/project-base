@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: foodie
+      POSTGRES_USER: foodie
+      POSTGRES_PASSWORD: foodie
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foodie -d foodie"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+  backend:
+    build: ./backend
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://foodie:foodie@db:5432/foodie
+      JWT_SECRET: ${JWT_SECRET:-development-only-change-me}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      LOCAL_TLS: ${LOCAL_TLS:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+    ports: ["8000:8000"]
+    volumes: ["./certs:/certs:ro"]
+volumes:
+  postgres-data:
