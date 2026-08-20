@@ -55,3 +55,30 @@ Las migraciones están en `backend/migrations/versions` y se aplican con
 `alembic upgrade head`. El esquema usa SQLAlchemy Core, no ORM, y
 `app.main.handler` expone la app con Mangum para Lambda/API Gateway. Al pasar
 a Aurora DSQL hay que validar el dialecto, driver y autenticación del servicio.
+
+### Flujo de migraciones
+
+Los cambios al esquema se definen primero en `backend/app/db/schema.py` y se
+guardan luego en una nueva revisión de Alembic. No se edita una migración que ya
+ha sido aplicada en un entorno compartido.
+
+Con los contenedores iniciados, ejecuta estos comandos desde la raíz:
+
+```sh
+# Revisar la revisión aplicada y validar que esquema y metadata coinciden
+docker compose run --rm --entrypoint alembic backend current
+docker compose run --rm --entrypoint alembic backend check
+
+# Crear una revisión a partir del cambio de schema.py; revisar el SQL generado
+docker compose run --rm --entrypoint alembic backend revision --autogenerate -m "describe el cambio"
+
+# Aplicar o revertir una revisión localmente
+docker compose run --rm --entrypoint alembic backend upgrade head
+docker compose run --rm --entrypoint alembic backend downgrade -1
+```
+
+Cada pull request que cambie tablas, columnas, índices o restricciones debe
+incluir su migración y explicar si hay impacto sobre datos existentes. La URL de
+conexión se obtiene de `DATABASE_URL`; Alembic usa una conexión sin pool al
+ejecutarse, apropiada para tareas de corta duración y para futuros entornos de
+despliegue.
