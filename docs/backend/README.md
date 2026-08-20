@@ -9,10 +9,17 @@ docker compose up --build
 ```
 
 La API queda en `http://localhost:8000`, con OpenAPI en `/docs`. El contenedor
-aplica las migraciones y crea el usuario de prueba si no existe: correo
-`demo@foodie.local`, contraseña `demo-password`. El login es
+aplica las migraciones y, solo en la configuración de Docker Compose de
+desarrollo, crea el usuario de prueba si no existe: correo `demo@foodie.local`,
+contraseña `demo-password`. El login es
 `POST /api/v1/auth/login`; devuelve 204 y establece una cookie `session`
-`HttpOnly`. No incluyan secretos ni contraseñas de producción en Git.
+`HttpOnly`. El seed usa un UUID generado por la aplicación, no una contraseña
+ni identificador de producción. No incluyan secretos ni contraseñas de
+producción en Git.
+
+El seed está desactivado por defecto. Para activarlo fuera de Docker Compose,
+establece `SEED_DEMO_USER=true`; ejecutarlo nuevamente no duplica al usuario,
+porque primero verifica el email.
 
 Para pruebas locales con Python 3.13 y uv:
 

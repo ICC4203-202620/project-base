@@ -1,12 +1,36 @@
+from uuid import uuid4
+
 from sqlalchemy import select
+
+from app.core.config import settings
 from app.core.security import hash_password
 from app.db.schema import users
 from app.db.session import engine
 
-def seed():
+
+def seed() -> bool:
+    """Create the development user once when explicitly enabled."""
+    if not settings.seed_demo_user:
+        return False
+
     with engine.begin() as connection:
-        if not connection.scalar(select(users.c.id).where(users.c.email == "demo@foodie.local")):
-            connection.execute(users.insert().values(email="demo@foodie.local", handle="@demo", name="Demo Foodie", nationality="Chile", password_hash=hash_password("demo-password")))
+        existing_user = connection.scalar(
+            select(users.c.id).where(users.c.email == "demo@foodie.local")
+        )
+        if existing_user:
+            return False
+
+        connection.execute(
+            users.insert().values(
+                id=uuid4(),
+                email="demo@foodie.local",
+                handle="@demo",
+                name="Demo Foodie",
+                nationality="Chile",
+                password_hash=hash_password("demo-password"),
+            )
+        )
+        return True
 
 if __name__ == "__main__":
     seed()
