@@ -24,5 +24,8 @@ include = ["app*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "integration: requires a PostgreSQL database configured through TEST_DATABASE_URL",
+]
 [tool.ruff]
 line-length = 100

@@ -29,6 +29,22 @@ uv sync --group dev
 uv run pytest
 ```
 
+### Pruebas de integración
+
+Las pruebas normales no requieren una base de datos; las que llevan la marca
+`integration` se omiten si `TEST_DATABASE_URL` no está configurada. Para
+ejecutar la suite completa contra un PostgreSQL aislado, desde la raíz:
+
+```sh
+docker compose --profile test up --build --abort-on-container-exit --exit-code-from backend-tests backend-tests
+docker compose --profile test down -v --remove-orphans
+```
+
+El perfil `test` crea `test-db` sin volumen persistente y el servicio
+`backend-tests` aplica las migraciones, ejecuta el seed y corre Pytest. Cubre
+la existencia de la tabla `users`, el usuario seed y un login real contra la
+base migrada; no usa la base `db` de desarrollo.
+
 ## Teléfono: HTTPS y mDNS
 
 Las cookies `Secure` requieren HTTPS. En macOS y Linux con Avahi/Bonjour, usa el
