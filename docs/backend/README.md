@@ -10,7 +10,7 @@ docker compose up --build
 
 La API queda en `http://localhost:8000`, con OpenAPI en `/docs`. El contenedor
 aplica las migraciones y, solo en la configuración de Docker Compose de
-desarrollo, crea el usuario de prueba si no existe: correo `demo@foodie.local`,
+desarrollo, crea el usuario de prueba si no existe: correo `demo@example.com`,
 contraseña `demo-password`. El login es
 `POST /api/v1/auth/login`; devuelve 204 y establece una cookie `session`
 `HttpOnly`. El seed usa un UUID generado por la aplicación, no una contraseña

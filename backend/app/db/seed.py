@@ -15,7 +15,7 @@ def seed() -> bool:
 
     with engine.begin() as connection:
         existing_user = connection.scalar(
-            select(users.c.id).where(users.c.email == "demo@foodie.local")
+            select(users.c.id).where(users.c.email == "demo@example.com")
         )
         if existing_user:
             return False
@@ -23,7 +23,7 @@ def seed() -> bool:
         connection.execute(
             users.insert().values(
                 id=uuid4(),
-                email="demo@foodie.local",
+                email="demo@example.com",
                 handle="@demo",
                 name="Demo Foodie",
                 nationality="Chile",
