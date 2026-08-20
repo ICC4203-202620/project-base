@@ -26,5 +26,32 @@ services:
       SEED_DEMO_USER: "true"
     ports: ["8000:8000"]
     volumes: ["./certs:/certs:ro"]
+  test-db:
+    profiles: ["test"]
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: foodie_test
+      POSTGRES_USER: foodie
+      POSTGRES_PASSWORD: foodie
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foodie -d foodie_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  backend-tests:
+    profiles: ["test"]
+    build:
+      context: ./backend
+      target: test
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://foodie:foodie@test-db:5432/foodie_test
+      TEST_DATABASE_URL: postgresql+psycopg://foodie:foodie@test-db:5432/foodie_test
+      JWT_SECRET: test-only-secret-do-not-use-in-production
+      SEED_DEMO_USER: "true"
+    entrypoint: ["/bin/sh", "-c"]
+    command: "alembic upgrade head && python -m app.db.seed && pytest"
 volumes:
   postgres-data:
