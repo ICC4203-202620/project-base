@@ -1,10 +1,30 @@
 import "./style.css";
 
+import { createApiClient } from "./api.js";
+import { AUTH_STATES, createAuthController } from "./auth.js";
+
 const apiStatus = document.querySelector("#api-status");
 const checkApiButton = document.querySelector("#check-api");
+const authCard = document.querySelector("#auth-card");
+const authStatus = document.querySelector("#auth-status");
+const authPanels = {
+  [AUTH_STATES.LOADING]: document.querySelector("#auth-loading"),
+  [AUTH_STATES.ANONYMOUS]: document.querySelector("#auth-anonymous"),
+  [AUTH_STATES.AUTHENTICATED]: document.querySelector("#auth-authenticated"),
+  [AUTH_STATES.UNAVAILABLE]: document.querySelector("#auth-unavailable"),
+};
 const loginForm = document.querySelector("#login-form");
-const loginStatus = document.querySelector("#login-status");
+const loginButton = loginForm.querySelector('button[type="submit"]');
+const passwordInput = document.querySelector("#password");
+const logoutButton = document.querySelector("#logout");
+const retrySessionButton = document.querySelector("#retry-session");
+const sessionName = document.querySelector("#session-name");
+const sessionHandle = document.querySelector("#session-handle");
+const sessionEmail = document.querySelector("#session-email");
+const sessionExpiration = document.querySelector("#session-expiration");
 const currentOrigin = document.querySelector("#current-origin");
+
+const api = createApiClient();
 
 currentOrigin.textContent = window.location.origin;
 
@@ -13,28 +33,46 @@ function showStatus(element, message, kind = "neutral") {
   element.dataset.kind = kind;
 }
 
-async function errorMessage(response) {
-  try {
-    const payload = await response.json();
-    return payload.detail ?? JSON.stringify(payload);
-  } catch {
-    return `HTTP ${response.status}`;
+function formatExpiration(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Fecha de caducación no disponible";
+  }
+  return `${new Intl.DateTimeFormat(undefined, {
+    dateStyle: "long",
+    timeStyle: "short",
+  }).format(date)} (hora local)`;
+}
+
+function renderAuth(state) {
+  authCard.dataset.state = state.status;
+  authCard.setAttribute("aria-busy", String(state.status === AUTH_STATES.LOADING));
+  for (const [name, panel] of Object.entries(authPanels)) {
+    panel.hidden = name !== state.status;
+  }
+
+  showStatus(authStatus, state.message, state.kind);
+  loginButton.disabled = state.status === AUTH_STATES.LOADING;
+  logoutButton.disabled = state.status === AUTH_STATES.LOADING;
+  retrySessionButton.disabled = state.status === AUTH_STATES.LOADING;
+
+  if (state.status === AUTH_STATES.AUTHENTICATED) {
+    sessionName.textContent = state.session.user.name;
+    sessionHandle.textContent = state.session.user.handle;
+    sessionEmail.textContent = state.session.user.email;
+    sessionExpiration.dateTime = state.session.expires_at;
+    sessionExpiration.textContent = formatExpiration(state.session.expires_at);
   }
 }
+
+const auth = createAuthController({ api, onStateChange: renderAuth });
 
 async function checkApi() {
   checkApiButton.disabled = true;
   showStatus(apiStatus, "Consultando /healthz…");
 
   try {
-    const response = await fetch("/healthz", {
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
-      throw new Error(await errorMessage(response));
-    }
-
-    const payload = await response.json();
+    const payload = await api.health();
     showStatus(apiStatus, `API disponible: ${payload.status}`, "success");
   } catch (error) {
     showStatus(apiStatus, `No fue posible conectar: ${error.message}`, "error");
@@ -43,35 +81,20 @@ async function checkApi() {
   }
 }
 
-async function login(event) {
+loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const formData = new FormData(loginForm);
-  const credentials = Object.fromEntries(formData.entries());
-
-  showStatus(loginStatus, "Enviando credenciales…");
-
-  try {
-    const response = await fetch("/api/v1/auth/login", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(credentials),
-    });
-    if (!response.ok) {
-      throw new Error(await errorMessage(response));
-    }
-
-    showStatus(
-      loginStatus,
-      "Login correcto. El navegador guardó la cookie HttpOnly.",
-      "success",
-    );
-  } catch (error) {
-    showStatus(loginStatus, `El login falló: ${error.message}`, "error");
+  await auth.login(Object.fromEntries(formData.entries()));
+  if (auth.state.status === AUTH_STATES.AUTHENTICATED) {
+    passwordInput.value = "";
+  } else if (auth.state.status === AUTH_STATES.ANONYMOUS) {
+    passwordInput.focus();
   }
-}
+});
 
+logoutButton.addEventListener("click", () => auth.logout());
+retrySessionButton.addEventListener("click", () => auth.restoreSession());
 checkApiButton.addEventListener("click", checkApi);
-loginForm.addEventListener("submit", login);
 
 checkApi();
+auth.restoreSession();
