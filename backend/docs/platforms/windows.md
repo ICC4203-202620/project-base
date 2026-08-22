@@ -91,10 +91,10 @@ para seguir permitiendo pruebas en el computador, también `localhost`,
 
 ## 5. Red y firewall
 
-Docker Desktop publica el puerto 8000 en el host Windows. Si el teléfono no
-puede acceder, abre **Seguridad de Windows → Firewall y protección de red →
-Configuración avanzada → Reglas de entrada** y permite TCP 8000 únicamente en
-redes privadas. No desactives el firewall completo.
+Docker Desktop publica el gateway HTTPS en el puerto 8443 del host Windows. Si
+el teléfono no puede acceder, abre **Seguridad de Windows → Firewall y
+protección de red → Configuración avanzada → Reglas de entrada** y permite TCP
+8443 únicamente en redes privadas. No desactives el firewall completo.
 
 Continúa con la configuración común de
 [HTTPS desde el teléfono](../../README.md#acceso-desde-un-teléfono-https-en-la-red-local).
@@ -124,7 +124,7 @@ Después de iniciar Compose con la configuración HTTPS del README, prueba prime
 con validación completa:
 
 ```powershell
-curl.exe https://192.168.1.40:8000/healthz
+curl.exe https://192.168.1.40:8443/healthz
 ```
 
 Debes obtener `{"status":"ok"}`. Si Windows responde pero el teléfono no,

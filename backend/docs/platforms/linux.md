@@ -90,8 +90,9 @@ para seguir permitiendo pruebas en el computador, también `localhost`,
 
 ## 5. Red y firewall
 
-Docker Compose publica el puerto 8000 en el host. Si tu firewall o la red
-institucional filtran conexiones, permite TCP 8000 solo desde la red local.
+Docker Compose publica el gateway HTTPS en el puerto 8443 del host. Si tu
+firewall o la red institucional filtran conexiones, permite TCP 8443 solo
+desde la red local.
 Ten presente que Docker administra reglas propias de iptables; consulta la
 [documentación de firewall de Docker](https://docs.docker.com/engine/network/packet-filtering-firewalls/)
 antes de asumir que una regla de UFW controla un puerto publicado.
@@ -129,7 +130,7 @@ Después de iniciar Compose con la configuración HTTPS del README, prueba prime
 con validación completa:
 
 ```console
-curl https://192.168.1.40:8000/healthz
+curl https://192.168.1.40:8443/healthz
 ```
 
 Debes obtener `{"status":"ok"}`. Si el computador responde pero el teléfono

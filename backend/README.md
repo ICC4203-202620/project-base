@@ -26,9 +26,9 @@ Guías para instalar la autoridad certificadora local en un dispositivo móvil:
 
 Los comandos comunes se ejecutan desde la raíz del repositorio. El entorno usa
 [Docker Compose](https://docs.docker.com/compose/) para describir y ejecutar
-dos servicios: [PostgreSQL](https://www.postgresql.org/docs/17/) en `db` y la
-API en `backend`. Compose también crea la red privada que los conecta y el
-volumen que conserva los datos de PostgreSQL.
+cuatro servicios: [PostgreSQL](https://www.postgresql.org/docs/17/) en `db`, la
+API en `backend`, Vite en `frontend` y nginx en `gateway`. Compose también crea
+la red privada que los conecta y los volúmenes de desarrollo.
 
 Antes de comenzar, comprueba que Docker y Compose estén disponibles:
 
@@ -44,11 +44,15 @@ docker compose up --build
 ```
 
 La primera ejecución puede tardar porque Compose debe descargar o construir las
-imágenes. Cuando ambos servicios estén listos, la API queda en
-<http://localhost:8000>. La interfaz interactiva de
+imágenes. Cuando los servicios estén listos, abre el frontend a través del
+gateway en <http://localhost:5173>. nginx sirve la aplicación desde Vite y
+envía los paths `/api/*`, `/healthz` y `/docs` a FastAPI.
+
+La API también queda expuesta directamente en <http://localhost:8000> para
+diagnóstico. La interfaz interactiva de
 [OpenAPI](https://spec.openapis.org/oas/latest.html), generada por
-[FastAPI](https://fastapi.tiangolo.com/features/#automatic-docs), queda en
-<http://localhost:8000/docs>.
+[FastAPI](https://fastapi.tiangolo.com/features/#automatic-docs), se puede abrir
+mediante el gateway en <http://localhost:5173/docs>.
 
 El contenedor aplica las migraciones y, solo en la configuración de Docker
 Compose de desarrollo, crea el usuario de prueba si no existe: correo
@@ -98,16 +102,16 @@ base migrada; no usa la base `db` de desarrollo.
 
 ## Acceso desde un teléfono: HTTPS en la red local
 
-El navegador del teléfono no puede conectarse a `localhost` para alcanzar el
-backend del computador: en cada dispositivo, `localhost` designa a ese mismo
-dispositivo. Para probar la aplicación desde un teléfono hay que publicar la API
-en la red local y acceder mediante HTTPS.
+El navegador del teléfono no puede conectarse a `localhost` para alcanzar los
+servicios del computador: en cada dispositivo, `localhost` designa a ese mismo
+dispositivo. Para probar la aplicación desde un teléfono hay que publicar el
+gateway en la red local y acceder mediante HTTPS.
 
 ### Conceptos que conviene recordar
 
 **HTTPS** es HTTP protegido por [TLS](https://www.rfc-editor.org/rfc/rfc8446).
 TLS cifra la conexión y permite que el cliente compruebe la identidad del
-servidor. Para identificarse, el backend presenta un **certificado X.509** que
+servidor. Para identificarse, el gateway presenta un **certificado X.509** que
 contiene su clave pública, su vigencia y los nombres o direcciones IP para los
 que es válido. El formato y la validación de estos certificados se definen en
 el [perfil X.509 de Internet](https://www.rfc-editor.org/rfc/rfc5280).
@@ -116,12 +120,12 @@ Una **autoridad certificadora** o **CA** firma certificados. Un navegador
 confía en un certificado del servidor cuando puede construir una cadena de
 firmas hasta una CA presente en su almacén de confianza. En producción se usa
 una CA pública. En desarrollo, [`mkcert`](https://github.com/FiloSottile/mkcert)
-crea una CA privada local y emite con ella un certificado para este backend.
+crea una CA privada local y emite con ella un certificado para este gateway.
 Por eso hay que instalar el certificado público de esa CA tanto en el
 computador como en el teléfono.
 
 ```text
-rootCA-key.pem --firma--> certs/local.pem --se presenta a--> navegador
+rootCA-key.pem --firma--> certs/local.pem --nginx lo presenta a--> navegador
 rootCA.pem     --se instala en--> almacén de confianza --lo consulta--> navegador
 ```
 
@@ -131,8 +135,8 @@ Los archivos cumplen funciones distintas:
 | --- | --- | --- |
 | `rootCA.pem` | Certificado público de la CA local | Se instala en los dispositivos de desarrollo. |
 | `rootCA-key.pem` | Clave privada de la CA local | No se copia ni se comparte: permite firmar otros certificados confiables. |
-| `certs/local.pem` | Certificado X.509 que presenta el backend | Permanece en el entorno del backend. |
-| `certs/local-key.pem` | Clave privada del backend | Permanece en el entorno del backend y no se publica. |
+| `certs/local.pem` | Certificado X.509 que presenta nginx | Se monta en el gateway local. |
+| `certs/local-key.pem` | Clave privada del gateway | Permanece en el computador y no se publica. |
 
 El navegador valida también que la IP o el nombre escrito en la URL aparezca
 en el certificado. Una IP debe coincidir exactamente, como explica la
@@ -180,24 +184,23 @@ archivo resultante está ignorado por Git y contiene esta configuración:
 ```dotenv
 LOCAL_TLS=true
 COOKIE_SECURE=true
-CORS_ORIGINS=https://192.168.1.40:5173
 ```
 
-Reemplaza `192.168.1.40` por la dirección LAN o nombre `.local` elegido. Las
-variables tienen estos efectos:
+Las variables tienen estos efectos:
 
-- `LOCAL_TLS` indica al contenedor que Uvicorn debe servir HTTPS con el
-  certificado local;
-- `COOKIE_SECURE` impide que la cookie de sesión viaje por HTTP; y
-- `CORS_ORIGINS` enumera los orígenes autorizados para el frontend.
+- `LOCAL_TLS` indica al gateway nginx que termine TLS con el certificado local;
+  FastAPI y Vite siguen usando HTTP dentro de la red privada de Compose; y
+- `COOKIE_SECURE` impide que la cookie de sesión viaje por HTTP.
 
 En la Web, un **origen** es la combinación de esquema, host y puerto. Por eso
 `http://192.168.1.40:5173` y `https://192.168.1.40:5173` son orígenes distintos.
-CORS permite que la API autorice solicitudes del frontend cuando ambos tienen
-orígenes diferentes; la [guía de CORS de FastAPI](https://fastapi.tiangolo.com/tutorial/cors/)
-desarrolla este modelo.
+Con el gateway, el navegador recibe el frontend y llama a `/api/*` usando el
+mismo origen. No se necesita CORS para ese camino. La configuración CORS del
+backend se conserva para quienes ejecuten Vite directamente en el puerto 5173;
+la [guía de CORS de FastAPI](https://fastapi.tiangolo.com/tutorial/cors/)
+desarrolla esta diferencia.
 
-Inicia la API con el mismo comando en Linux, macOS y PowerShell:
+Inicia los servicios con el mismo comando en Linux, macOS y PowerShell:
 
 ```console
 docker compose --env-file .env.local up --build
@@ -215,9 +218,14 @@ docker compose --env-file .env.local up --build
 Desde el teléfono abre:
 
 ```text
-https://192.168.1.40:8000/healthz
-https://192.168.1.40:8000/docs
+https://192.168.1.40:8443/
+https://192.168.1.40:8443/healthz
+https://192.168.1.40:8443/docs
 ```
+
+El primer path viene de Vite; los otros dos pasan por nginx hacia FastAPI. El
+frontend usa URLs relativas como `/api/v1/auth/login`, por lo que la IP o nombre
+mDNS no queda escrito en su código.
 
 El login debe responder con una cookie `Secure; HttpOnly; SameSite=Lax`.
 `Secure` indica que el navegador solo debe enviarla por HTTPS; `HttpOnly`
@@ -228,7 +236,7 @@ entre sitios. Estas propiedades forman parte del mecanismo de
 ### Diagnóstico común
 
 - Abre primero `/healthz` desde el computador usando la misma dirección LAN.
-- `curl -k https://192.168.1.40:8000/healthz` desactiva deliberadamente la
+- `curl -k https://192.168.1.40:8443/healthz` desactiva deliberadamente la
   validación del certificado. Úsalo solo para separar un problema de red de uno
   de confianza; no demuestra que HTTPS esté configurado correctamente.
 - Si funciona en el computador pero no en el teléfono, revisa firewall,
@@ -236,8 +244,7 @@ entre sitios. Estas propiedades forman parte del mecanismo de
 - Si el navegador rechaza el certificado, confirma que este incluya la
   dirección exacta y que el teléfono confíe `rootCA.pem`.
 - Si la API responde pero el navegador no conserva la sesión, verifica HTTPS,
-  `COOKIE_SECURE=true`, el origen exacto en `CORS_ORIGINS` y que el frontend
-  envíe credenciales en las solicitudes cross-origin.
+  `COOKIE_SECURE=true` y que el frontend envíe credenciales con Fetch.
 
 ## Migraciones y Lambda
 
