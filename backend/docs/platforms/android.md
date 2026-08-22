@@ -70,7 +70,7 @@ Conecta el teléfono a la misma red local que el computador y abre la URL exacta
 que configuraste, por ejemplo:
 
 ```text
-https://192.168.1.40:8443/healthz
+https://192.168.1.40:5173/healthz
 ```
 
 Deberías ver una respuesta exitosa sin una advertencia de certificado. Si el

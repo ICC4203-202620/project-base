@@ -10,8 +10,8 @@ Si es tu primera vez en el proyecto, sigue este orden:
 1. prepara el computador con la guía de tu plataforma;
 2. levanta la API con la sección [Inicio rápido](#inicio-rápido);
 3. ejecuta las [pruebas](#pruebas); y
-4. si usarás un teléfono, continúa con
-   [HTTPS en la red local](#acceso-desde-un-teléfono-https-en-la-red-local).
+4. si usarás HTTPS o un teléfono, continúa con
+   [HTTPS en la red local](#https-local-y-acceso-desde-un-teléfono).
 
 Guías para preparar el computador:
 
@@ -23,6 +23,10 @@ Guías para instalar la autoridad certificadora local en un dispositivo móvil:
 
 - [Android](docs/platforms/android.md)
 - [iOS y iPadOS](docs/platforms/ios.md)
+
+Guía para confiar la CA en un navegador del computador:
+
+- [Google Chrome y Mozilla Firefox](docs/platforms/browsers.md)
 
 Los comandos comunes se ejecutan desde la raíz del repositorio. El entorno usa
 [Docker Compose](https://docs.docker.com/compose/) para describir y ejecutar
@@ -100,7 +104,14 @@ El perfil `test` crea `test-db` sin volumen persistente y el servicio
 la existencia de la tabla `users`, el usuario seed y un login real contra la
 base migrada; no usa la base `db` de desarrollo.
 
-## Acceso desde un teléfono: HTTPS en la red local
+## HTTPS local y acceso desde un teléfono
+
+HTTPS también se puede usar en el mismo computador. Los helpers del proyecto
+emiten el certificado para `localhost`, `127.0.0.1`, `::1` y la dirección LAN o
+nombre mDNS proporcionado. Después de instalar la CA local, Chrome o Firefox
+pueden abrir <https://localhost:5173> sin una advertencia de certificado. Sigue
+la guía de [Chrome y Firefox](docs/platforms/browsers.md) para entender y
+verificar sus almacenes de confianza.
 
 El navegador del teléfono no puede conectarse a `localhost` para alcanzar los
 servicios del computador: en cada dispositivo, `localhost` designa a ese mismo
@@ -184,13 +195,19 @@ archivo resultante está ignorado por Git y contiene esta configuración:
 ```dotenv
 LOCAL_TLS=true
 COOKIE_SECURE=true
+GATEWAY_HTTP_PORT=5174
+GATEWAY_HTTPS_PORT=5173
 ```
 
 Las variables tienen estos efectos:
 
 - `LOCAL_TLS` indica al gateway nginx que termine TLS con el certificado local;
-  FastAPI y Vite siguen usando HTTP dentro de la red privada de Compose; y
-- `COOKIE_SECURE` impide que la cookie de sesión viaje por HTTP.
+  FastAPI y Vite siguen usando HTTP dentro de la red privada de Compose;
+- `COOKIE_SECURE` impide que la cookie de sesión viaje por HTTP;
+- `GATEWAY_HTTPS_PORT=5173` conserva el puerto habitual para la entrada HTTPS;
+  y
+- `GATEWAY_HTTP_PORT=5174` evita que los dos mapeos de Compose intenten usar el
+  mismo puerto. El gateway sirve solo HTTPS cuando `LOCAL_TLS=true`.
 
 En la Web, un **origen** es la combinación de esquema, host y puerto. Por eso
 `http://192.168.1.40:5173` y `https://192.168.1.40:5173` son orígenes distintos.
@@ -206,6 +223,14 @@ Inicia los servicios con el mismo comando en Linux, macOS y PowerShell:
 docker compose --env-file .env.local up --build
 ```
 
+Verifica primero desde el computador:
+
+```text
+https://localhost:5173/
+https://localhost:5173/healthz
+https://localhost:5173/docs
+```
+
 ### 3. Confía la CA en el teléfono y verifica
 
 `mkcert -CAROOT` muestra el directorio de la CA. Instala **solo**
@@ -218,9 +243,9 @@ docker compose --env-file .env.local up --build
 Desde el teléfono abre:
 
 ```text
-https://192.168.1.40:8443/
-https://192.168.1.40:8443/healthz
-https://192.168.1.40:8443/docs
+https://192.168.1.40:5173/
+https://192.168.1.40:5173/healthz
+https://192.168.1.40:5173/docs
 ```
 
 El primer path viene de Vite; los otros dos pasan por nginx hacia FastAPI. El
@@ -236,7 +261,7 @@ entre sitios. Estas propiedades forman parte del mecanismo de
 ### Diagnóstico común
 
 - Abre primero `/healthz` desde el computador usando la misma dirección LAN.
-- `curl -k https://192.168.1.40:8443/healthz` desactiva deliberadamente la
+- `curl -k https://192.168.1.40:5173/healthz` desactiva deliberadamente la
   validación del certificado. Úsalo solo para separar un problema de red de uno
   de confianza; no demuestra que HTTPS esté configurado correctamente.
 - Si funciona en el computador pero no en el teléfono, revisa firewall,

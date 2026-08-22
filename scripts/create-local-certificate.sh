@@ -23,4 +23,4 @@ mkcert \
   -key-file "$certificate_dir/local-key.pem" \
   "$host_or_ip" localhost 127.0.0.1 ::1
 
-echo "Certificado creado para https://$host_or_ip:8000"
+echo "Certificado creado para https://$host_or_ip:5173 y https://localhost:5173"

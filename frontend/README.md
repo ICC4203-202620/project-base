@@ -51,17 +51,20 @@ Abre <http://localhost:5173>. El gateway sirve el frontend y enruta las llamadas
 al backend. Vite observa los archivos montados desde `frontend/`, por lo que los
 cambios aparecen sin reconstruir la imagen.
 
-Si el puerto está ocupado, define otro en tu archivo `.env` local, por ejemplo
-`GATEWAY_HTTP_PORT=5174`. Para HTTPS se puede sobreescribir de la misma forma
-`GATEWAY_HTTPS_PORT`, cuyo valor predeterminado es 8443. Estas variables solo
-cambian los puertos publicados por Compose; no entran en el bundle.
+Si el puerto está ocupado, define otro en tu archivo `.env` local mediante
+`GATEWAY_HTTP_PORT`. El valor predeterminado de Compose para HTTPS es 8443, pero
+el perfil `.env.local.example` lo publica en 5173 y desplaza el mapeo HTTP a
+5174. Así, la URL habitual cambia de esquema, no de puerto: HTTP para el inicio
+rápido y HTTPS para el perfil TLS. Estas variables solo cambian los puertos
+publicados por Compose; no entran en el bundle.
 
 La API sigue disponible directamente en <http://localhost:8000> para
 diagnóstico, pero el frontend no debe construir URLs con ese puerto.
 
 Para abrir la aplicación desde un teléfono con HTTPS, sigue la guía de
-[acceso desde la red local](../backend/README.md#acceso-desde-un-teléfono-https-en-la-red-local).
-El punto de entrada será, por ejemplo, `https://192.168.1.40:8443`.
+[HTTPS local y acceso desde un teléfono](../backend/README.md#https-local-y-acceso-desde-un-teléfono).
+Los puntos de entrada serán `https://localhost:5173` en el computador y, por
+ejemplo, `https://192.168.1.40:5173` desde otro dispositivo.
 
 ## Ejecutar Vite directamente
 
