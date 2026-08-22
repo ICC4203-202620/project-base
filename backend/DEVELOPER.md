@@ -56,10 +56,10 @@ presenta frontend y backend bajo un mismo origen; internamente envía `/api/*`,
 | --- | --- | --- |
 | [Python 3.13](https://docs.python.org/3/) | Lenguaje y runtime | Todo `backend/` |
 | [FastAPI](https://fastapi.tiangolo.com/) | Aplicación ASGI, routing, validación integrada y OpenAPI | `app/main.py`, `app/api/` |
-| [Pydantic](https://docs.pydantic.dev/latest/concepts/models/) | Modelos de entrada y validación de datos | `app/api/` |
+| [Pydantic](https://docs.pydantic.dev/latest/concepts/models/) | Modelos de entrada, salida y validación de datos | `app/schemas/`, `app/api/` |
 | [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) | Configuración tipada desde variables de entorno | `app/core/config.py` |
 | [Uvicorn](https://www.uvicorn.org/) | Servidor ASGI del contenedor local | `entrypoint.sh` |
-| [SQLAlchemy Core](https://docs.sqlalchemy.org/en/20/tutorial/) | Tablas, expresiones SQL, conexiones y transacciones; no se usa el ORM | `app/db/`, `app/api/` |
+| [SQLAlchemy Core](https://docs.sqlalchemy.org/en/20/tutorial/) | Tablas, expresiones SQL, conexiones y transacciones; no se usa el ORM | `app/db/`, `app/services/` |
 | [Psycopg 3](https://www.psycopg.org/psycopg3/docs/) | Driver PostgreSQL usado por SQLAlchemy | Configuración del engine |
 | [Alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html) | Historial ejecutable y versionado del esquema | `migrations/` |
 | [argon2-cffi](https://argon2-cffi.readthedocs.io/en/stable/api.html) | Hash y verificación de contraseñas con Argon2 | `app/core/security.py` |
@@ -81,14 +81,19 @@ backend/
 │   ├── main.py             composición de FastAPI y entrypoints ASGI/Lambda
 │   ├── api/
 │   │   ├── auth.py         contratos HTTP, respuestas y cookies
-│   │   └── dependencies.py sesión actual y protección de origen
+│   │   ├── dependencies.py sesión actual y protección de origen
+│   │   └── restaurants.py  contrato HTTP del CRUD protegido
+│   ├── schemas/
+│   │   └── restaurants.py  modelos Pydantic de entrada y salida
 │   ├── core/
 │   │   ├── config.py       configuración y validaciones por ambiente
 │   │   └── security.py     passwords, creación y validación de JWT
 │   ├── services/
-│   │   └── auth.py         caso de uso y sesiones persistentes
+│   │   ├── auth.py         caso de uso y sesiones persistentes
+│   │   └── restaurants.py  reglas, consultas y transacciones del recurso
 │   └── db/
 │       ├── engine.py       engines PostgreSQL/DSQL y políticas de pool
+│       ├── fixtures.py     datos docentes deterministas, sin inserciones
 │       ├── retry.py        reintentos acotados de transacciones idempotentes
 │       ├── session.py      engine compartido por el proceso
 │       ├── schema.py       metadata y tablas SQLAlchemy Core
@@ -104,7 +109,9 @@ backend/
 - `app/main.py` **compone** la aplicación. Incluye routers y middleware, pero no
   implementa casos de uso.
 - `app/api/` contiene el contrato de transporte: paths, métodos, modelos
-  Pydantic, status codes, cookies y traducción de errores a HTTP.
+  asociados al request, status codes, cookies y traducción de errores a HTTP.
+- `app/schemas/` contiene contratos Pydantic reutilizables, separados de las
+  tablas y de su representación interna.
 - `app/core/` contiene capacidades transversales que no dependen de HTTP ni de
   una tabla concreta.
 - `app/services/` coordina casos de uso con varias reglas o pasos de
@@ -185,6 +192,56 @@ origen del request —incluido IP o mDNS bajo el gateway— y los valores explí
 de `CORS_ORIGINS`; un navegador que declare una solicitud cross-site se rechaza
 con 403. Clientes no navegador pueden omitir `Origin`.
 
+## Recurso de restaurantes
+
+`app/api/restaurants.py` mantiene las decisiones HTTP y delega el caso de uso a
+`app/services/restaurants.py`. Los modelos Pydantic de `app/schemas/` validan
+longitudes, coordenadas, slugs y la diferencia entre un campo omitido y uno
+nulo en `PATCH`. Los modelos de respuesta no son tablas: convierten los tipos
+de persistencia y exponen los estilos como una colección de objetos.
+
+El listado primero pagina restaurantes con un orden estable y después obtiene
+sus estilos en una segunda consulta. Así evita tanto una colección ilimitada
+como el patrón N+1. `limit` está acotado a 100 y `offset` nunca es negativo. La
+[documentación de parámetros de consulta de
+FastAPI](https://fastapi.tiangolo.com/tutorial/query-params-str-validations/)
+explica cómo estas restricciones pasan además al esquema OpenAPI.
+
+Para detectar duplicados, la aplicación normaliza nombre y dirección mediante
+Unicode NFKC, colapsa whitespace y aplica `casefold`. Luego calcula una clave
+SHA-256 sobre ambas partes. El índice único de `identity_key` hace que dos
+requests concurrentes no puedan crear la misma identidad, sin indexar textos
+largos ni requerir una extensión PostgreSQL. Las columnas normalizadas quedan
+explícitas para ordenamiento y diagnóstico, pero nunca se aceptan desde el
+cliente.
+
+Crear, actualizar y eliminar usan transacciones cortas. Un UUID y timestamp se
+calculan antes de un posible reintento; reemplazar estilos elimina e inserta las
+asociaciones dentro de la misma transacción. Si un slug no existe, toda la
+operación revierte. Las tablas no declaran foreign keys ni cascadas porque el
+adaptador de Aurora DSQL no las soporta: el servicio valida estilos y elimina
+asociaciones antes que el restaurante. Esta decisión exige conservar esas
+invariantes en todos los futuros casos de uso.
+
+Las escrituras con cookie validan también el origen para reducir CSRF. Por
+ahora cualquier sesión válida puede crear, editar o eliminar restaurantes;
+esto es una simplificación docente deliberada, no una política para producción.
+Una evolución con roles u ownership debe introducir una autorización explícita
+antes de reutilizar el CRUD en un despliegue real.
+
+### Fixtures y seed
+
+`app/db/fixtures.py` sólo declara ocho estilos y diez restaurantes ficticios
+con UUID estables. `app/db/seed.py` contiene la inserción. Separar datos y
+mecanismo hace visible qué contenido es docente y permite probar la
+idempotencia sin mezclarlo con el runtime del API.
+
+`SEED_DEMO_DATA=true` habilita usuario, estilos y restaurantes. El seed busca
+UUID, slug e identidad antes de insertar, pero nunca actualiza una fila ya
+existente ni reemplaza asociaciones: reiniciar Compose conserva cambios de los
+estudiantes. `Settings` rechaza esta opción en producción y Lambda no ejecuta
+el entrypoint local, por lo que las fixtures no forman parte del bootstrap AWS.
+
 ## Configuración
 
 `app/core/config.py` define `Settings`, que hereda de `BaseSettings`. Pydantic
@@ -199,12 +256,12 @@ Las variables se agrupan conceptualmente así:
 - base: `DATABASE_BACKEND`, `DATABASE_URL`, `AURORA_DSQL_*` y opciones del pool;
 - sesión: `JWT_SECRET`, `JWT_EXPIRATION_MINUTES` y `COOKIE_SECURE`;
 - navegador: `CORS_ORIGINS`; y
-- datos locales: `SEED_DEMO_USER`.
+- datos locales: `SEED_DEMO_DATA`.
 
-En producción, la configuración rechaza el secreto de desarrollo y exige
-cookies `Secure`. Los secretos se inyectan desde la plataforma: no se agregan a
-archivos versionados ni a valores `VITE_*`, porque estos últimos terminan en el
-bundle público del frontend.
+En producción, la configuración rechaza el secreto de desarrollo, exige
+cookies `Secure` e impide habilitar las fixtures. Los secretos se inyectan desde
+la plataforma: no se agregan a archivos versionados ni a valores `VITE_*`,
+porque estos últimos terminan en el bundle público del frontend.
 
 Aunque el gateway evita CORS en el camino normal, la configuración CORS se
 conserva para el modo en que Vite se ejecuta directamente y la API se abre en
@@ -258,7 +315,9 @@ separación.
 conflicto de serialización/concurrencia. La operación se ejecuta nuevamente en
 una transacción nueva, con backoff acotado. Esto sólo es correcto si el caso de
 uso es idempotente: login conserva el mismo UUID de sesión durante sus
-reintentos y logout actualiza condicionalmente una fila aún no revocada.
+reintentos, logout actualiza condicionalmente una fila aún no revocada y el
+CRUD de restaurantes fija UUID/timestamp y repite el conjunto completo de
+cambios.
 
 ## Esquema y migraciones con Alembic
 
@@ -307,9 +366,7 @@ no recibe permisos DDL.
 ## Cómo agregar un endpoint
 
 1. Crea o amplía un módulo en `app/api/` y declara su `APIRouter`.
-2. Define modelos Pydantic explícitos para entrada y salida. Mientras sean
-   locales al recurso pueden vivir junto al router; si se comparten, muévelos a
-   un módulo dedicado.
+2. Define modelos Pydantic explícitos para entrada y salida en `app/schemas/`.
 3. Mantén en el router las decisiones HTTP y mueve reglas de varios pasos a
    `app/services/` cuando aparezcan.
 4. Construye consultas con SQLAlchemy Core y delimita la transacción.
@@ -325,15 +382,15 @@ puertos ni nombres de ambiente en los módulos de la API.
 
 La suite combina niveles distintos:
 
-- `test_health.py` y `test_auth.py`: contrato HTTP rápido con `TestClient` y
-  colaboradores reemplazados cuando corresponde;
+- `test_health.py`, `test_auth.py` y `test_restaurants.py`: contrato HTTP rápido
+  con `TestClient` y colaboradores reemplazados cuando corresponde;
 - `test_security.py` y `test_retry.py`: claims obligatorios, expiración y
   política de reintentos;
 - `test_config.py`: invariantes de configuración;
 - `test_database.py`: construcción de engines PostgreSQL/DSQL;
 - `test_seed.py`: idempotencia del seed;
-- `test_integration.py`: migraciones, seed y ciclo login/sesión/logout contra
-  PostgreSQL real; y
+- `test_integration.py`: ciclo completo de migraciones, seed, autenticación y
+  CRUD de restaurantes contra PostgreSQL real; y
 - `test_lambda.py`: eventos API Gateway HTTP API v2 y cookies procesados por
   Mangum.
 
@@ -349,8 +406,12 @@ Para la suite completa con PostgreSQL aislado:
 
 ```console
 docker compose --profile test up --build --abort-on-container-exit --exit-code-from backend-tests backend-tests
-docker compose --profile test down -v --remove-orphans
+docker compose --profile test down --remove-orphans
 ```
+
+No uses `-v` para limpiar este perfil: la opción elimina también los volúmenes
+de los servicios fuera del perfil, incluido `postgres-data`. La base `test-db`
+es efímera y desaparece al retirar su contenedor.
 
 Una prueba unitaria no reemplaza la prueba de migración. Todo cambio de tablas,
 restricciones o comportamiento dependiente de PostgreSQL requiere cobertura de
@@ -366,7 +427,8 @@ Estas reglas mantienen abierta la migración futura:
 - las dependencias DSQL viven en el extra opcional `.[aws]`;
 - las conexiones se administran mediante pools pequeños y reciclables;
 - las migraciones no se ejecutan durante una invocación Lambda;
-- las transacciones de escritura deben ser pequeñas y reintentables; y
+- las transacciones de escritura deben ser pequeñas y reintentables;
+- las relaciones se mantienen en la aplicación, sin foreign keys ni cascadas; y
 - cada uso de una característica PostgreSQL debe comprobarse contra las
   capacidades de DSQL.
 

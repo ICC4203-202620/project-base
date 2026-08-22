@@ -26,3 +26,13 @@ def test_production_requires_secure_cookie():
 def test_session_expiration_must_be_positive():
     with pytest.raises(ValidationError, match="jwt_expiration_minutes"):
         Settings(jwt_expiration_minutes=0)
+
+
+def test_production_rejects_demo_seed():
+    with pytest.raises(ValidationError, match="SEED_DEMO_DATA"):
+        Settings(
+            environment="production",
+            jwt_secret="injected-production-secret",
+            cookie_secure=True,
+            seed_demo_data=True,
+        )

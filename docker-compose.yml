@@ -22,7 +22,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-development-only-change-me-change-me}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
-      SEED_DEMO_USER: "true"
+      SEED_DEMO_DATA: "true"
     ports: ["8000:8000"]
   frontend:
     build: ./frontend
@@ -67,7 +67,7 @@ services:
       DATABASE_URL: postgresql+psycopg://foodie:foodie@test-db:5432/foodie_test
       TEST_DATABASE_URL: postgresql+psycopg://foodie:foodie@test-db:5432/foodie_test
       JWT_SECRET: test-only-secret-do-not-use-in-production
-      SEED_DEMO_USER: "true"
+      SEED_DEMO_DATA: "true"
     entrypoint: ["/bin/sh", "/app/test-entrypoint.sh"]
 volumes:
   postgres-data:

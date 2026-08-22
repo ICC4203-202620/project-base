@@ -89,7 +89,7 @@ DATABASE_POOL_RECYCLE_SECONDS=3300
 JWT_SECRET=<inyectado por la plataforma>
 COOKIE_SECURE=true
 CORS_ORIGINS=https://app.example.com
-SEED_DEMO_USER=false
+SEED_DEMO_DATA=false
 ```
 
 Para DSQL se reemplaza la configuración de conexión:
@@ -210,8 +210,9 @@ concurrencia optimista.
 
 ## Validación mínima
 
-`tests/test_lambda.py` entrega a Mangum un evento HTTP API v2 realista y exige
-que `GET /healthz` responda igual que bajo Uvicorn. Antes de desplegar:
+`tests/test_lambda.py` entrega a Mangum eventos HTTP API v2 realistas y exige
+que `GET /healthz`, las cookies de autenticación y el listado protegido de
+restaurantes se comporten igual que bajo Uvicorn. Antes de desplegar:
 
 ```console
 cd backend
