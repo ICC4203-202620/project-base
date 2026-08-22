@@ -60,6 +60,8 @@ explica su [relación con PostgreSQL](https://docs.aws.amazon.com/aurora-dsql/la
   y resuelve las diferencias del dialecto.
 - **Migraciones:** Alembic corre como un paso separado y único del despliegue;
   nunca durante un cold start. La aplicación Lambda no necesita permisos DDL.
+- **Sesiones:** el JWT identifica mediante `jti` una fila de `auth_sessions` en
+  la base compartida. Logout y caducación no dependen de la memoria de Lambda.
 - **Secretos:** los valores de producción se inyectan en el despliegue y no se
   guardan en Git. `JWT_SECRET` se obtiene de AWS Secrets Manager o del almacén
   de secretos del pipeline y se entrega como variable cifrada de Lambda. Si el
@@ -113,6 +115,26 @@ tienen pools independientes. El tamaño recomendado inicial es una conexión y
 cero overflow por instancia. Se puede aumentar después de medir concurrencia y
 latencia. `pool_pre_ping` descarta conexiones cerradas y `pool_recycle=3300`
 evita reutilizarlas después de 55 minutos, antes del máximo de una hora de DSQL.
+
+## Sesiones y revocación en Lambda
+
+Cada request autenticado valida primero la firma y `exp` del JWT y después
+consulta `auth_sessions` en Aurora DSQL. Una sesión sólo es válida si la fila
+existe, corresponde a `sub`, no está revocada y tampoco venció en la base. Esta
+consulta deliberada permite que un logout confirmado sea visible para todas
+las instancias concurrentes.
+
+El engine puede reutilizarse durante un warm start, pero ninguna allowlist o
+denylist se guarda en variables del módulo. Un cold start y dos instancias en
+paralelo observan el mismo estado durable. Las escrituras de login y logout son
+cortas y `app/db/retry.py` reintenta conflictos `SQLSTATE 40001`; los UUID se
+conservan durante el reintento y el update de revocación es idempotente.
+
+API Gateway HTTP API v2 representa `Set-Cookie` como la colección `cookies` de
+la respuesta; Mangum realiza esa traducción. Cuando CloudFront se incorpore,
+el comportamiento `/api/*` debe reenviar cookies, permitir los métodos HTTP y
+mantener el caché deshabilitado. Nunca se debe incluir JWT, `Cookie` o
+`Set-Cookie` en logs.
 
 ## IAM y roles de base de datos
 

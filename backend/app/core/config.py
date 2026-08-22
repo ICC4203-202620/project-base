@@ -11,6 +11,7 @@ class DatabaseBackend(StrEnum):
     POSTGRESQL = "postgresql"
     AURORA_DSQL = "aurora-dsql"
 
+
 class Settings(BaseSettings):
     environment: Literal["development", "test", "production"] = "development"
     database_backend: DatabaseBackend = DatabaseBackend.POSTGRESQL
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
     database_max_overflow: int = Field(default=10, ge=0)
     database_pool_recycle_seconds: int = Field(default=3300, ge=1, lt=3600)
     jwt_secret: str = DEVELOPMENT_JWT_SECRET
-    jwt_expiration_minutes: int = 10080
+    jwt_expiration_minutes: int = Field(default=10080, ge=1)
     cookie_secure: bool = False
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     seed_demo_user: bool = False
@@ -48,6 +49,9 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        return [
+            origin.strip().rstrip("/") for origin in self.cors_origins.split(",") if origin.strip()
+        ]
+
 
 settings = Settings()

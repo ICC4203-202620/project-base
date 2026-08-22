@@ -17,6 +17,7 @@ Thumbs.db
 !.env.local.example
 *.pem
 credentials.json
+foodie-cookie.txt
 
 # Logs
 *.log

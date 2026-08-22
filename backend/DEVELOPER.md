@@ -80,12 +80,16 @@ backend/
 ├── app/
 │   ├── main.py             composición de FastAPI y entrypoints ASGI/Lambda
 │   ├── api/
-│   │   └── auth.py         contratos HTTP y router de autenticación
+│   │   ├── auth.py         contratos HTTP, respuestas y cookies
+│   │   └── dependencies.py sesión actual y protección de origen
 │   ├── core/
 │   │   ├── config.py       configuración y validaciones por ambiente
-│   │   └── security.py     passwords y creación de JWT
+│   │   └── security.py     passwords, creación y validación de JWT
+│   ├── services/
+│   │   └── auth.py         caso de uso y sesiones persistentes
 │   └── db/
 │       ├── engine.py       engines PostgreSQL/DSQL y políticas de pool
+│       ├── retry.py        reintentos acotados de transacciones idempotentes
 │       ├── session.py      engine compartido por el proceso
 │       ├── schema.py       metadata y tablas SQLAlchemy Core
 │       └── seed.py         datos de demostración optativos
@@ -103,16 +107,18 @@ backend/
   Pydantic, status codes, cookies y traducción de errores a HTTP.
 - `app/core/` contiene capacidades transversales que no dependen de HTTP ni de
   una tabla concreta.
+- `app/services/` coordina casos de uso con varias reglas o pasos de
+  persistencia, sin depender de objetos HTTP.
 - `app/db/` contiene la definición y construcción de la infraestructura de
   persistencia.
 - `migrations/` registra cómo llevar una base desde una revisión de esquema a
   la siguiente. No es código que atienda solicitudes.
 
-El alcance actual es pequeño y el login coordina su consulta directamente en
-el router. Cuando un caso de uso tenga varias reglas, escrituras o recursos,
-se debe introducir `app/services/` y mover allí esa coordinación. No conviene
-crear la capa antes de que exista lógica que abstraer, pero tampoco acumular
-lógica de negocio en los routers.
+El ciclo de autenticación justifica la primera capa de servicio: consultar al
+usuario, verificar Argon2, crear o revocar una fila y emitir o validar un JWT
+son pasos relacionados que `app/services/auth.py` coordina. El router conserva
+las decisiones de HTTP y la dependencia convierte una sesión de aplicación en
+autorización reutilizable para otros recursos.
 
 ## Dos entrypoints, una sola aplicación
 
@@ -130,17 +136,17 @@ El endpoint `/healthz` y una prueba con un evento HTTP API v2 aseguran que ambos
 caminos mantengan el mismo comportamiento. La arquitectura AWS completa está
 en [Despliegue en AWS Lambda y Aurora DSQL](docs/aws-lambda.md).
 
-## Ciclo de una solicitud de login
+## Ciclo de autenticación
 
-`POST /api/v1/auth/login` ilustra el recorrido actual:
+`POST /api/v1/auth/login` sigue este recorrido:
 
 1. nginx conserva el path y entrega la solicitud a FastAPI;
 2. `app.main` selecciona el router incluido bajo `/api/v1`;
 3. Pydantic valida JSON como `LoginRequest`, incluido el formato del email;
-4. SQLAlchemy construye un `SELECT` sobre la tabla `users`;
-5. el engine obtiene una conexión Psycopg desde su pool;
-6. Argon2 compara la contraseña con `password_hash`;
-7. PyJWT firma un token HS256 con `sub` y `exp`; y
+4. la protección de origen rechaza solicitudes mutables de otro sitio;
+5. el servicio consulta `users` y Argon2 compara `password_hash`;
+6. una transacción inserta una fila en `auth_sessions`;
+7. PyJWT firma un token HS256 con `sub`, `jti`, `iat` y `exp`; y
 8. FastAPI responde 204 y entrega el JWT en la cookie `session`.
 
 La cookie usa `HttpOnly`, `SameSite=Lax` y, bajo HTTPS, `Secure`. `HttpOnly`
@@ -148,9 +154,36 @@ impide que JavaScript lea el JWT, pero el navegador puede adjuntarlo a futuras
 solicitudes. Un JWT firmado permite detectar modificaciones; su payload no está
 cifrado y no debe contener secretos.
 
-El esqueleto actual crea la sesión durante el login, pero todavía no incluye
-una dependencia FastAPI que lea y valide esa cookie para proteger otros
-endpoints. Esa autorización se agregará cuando existan rutas autenticadas.
+El JWT y la tabla cumplen tareas distintas. La firma y `exp` permiten rechazar
+localmente un token alterado o vencido. `jti` identifica una fila compartida
+que debe existir, pertenecer a `sub`, no estar revocada y no haber caducado. La
+tabla es una **allowlist**: borrar la cookie no basta, porque una copia del JWT
+seguiría existiendo; `POST /auth/logout` marca `revoked_at` y luego elimina la
+cookie.
+
+`get_current_session` aplica esas verificaciones y entrega un
+`AuthenticatedSession` a cualquier ruta protegida. `GET /auth/session` usa la
+misma dependencia para que el frontend reconstruya su estado. Una credencial
+inválida responde 401; una falla de la base impide autorizar y responde 503, sin
+confundir indisponibilidad con credenciales incorrectas.
+
+La caducación es absoluta y se representa en tres lugares coordinados:
+
+- `exp` dentro del JWT;
+- `auth_sessions.expires_at` como límite del servidor; y
+- `Max-Age`/`Expires` como comportamiento del navegador.
+
+La configuración inicial no renueva sesiones ni usa refresh tokens. Varias
+sesiones por usuario son válidas y logout revoca sólo la actual.
+
+### Cookies y CSRF
+
+`HttpOnly` evita que JavaScript lea el JWT; `Secure` restringe su transporte a
+HTTPS y `SameSite=Lax` reduce el envío entre sitios. Como las cookies se
+adjuntan automáticamente, login y logout además validan `Origin`. Se acepta el
+origen del request —incluido IP o mDNS bajo el gateway— y los valores explícitos
+de `CORS_ORIGINS`; un navegador que declare una solicitud cross-site se rechaza
+con 403. Clientes no navegador pueden omitir `Origin`.
 
 ## Configuración
 
@@ -175,7 +208,9 @@ bundle público del frontend.
 
 Aunque el gateway evita CORS en el camino normal, la configuración CORS se
 conserva para el modo en que Vite se ejecuta directamente y la API se abre en
-otro origen.
+otro origen. Los mismos valores son orígenes explícitamente confiables para las
+operaciones mutables de autenticación; CORS y la validación CSRF son controles
+distintos.
 
 ## Persistencia con SQLAlchemy Core
 
@@ -218,6 +253,12 @@ excepción. No mantengas una conexión global: el objeto global es el `Engine`,
 que administra el pool. La documentación de
 [Engine](https://docs.sqlalchemy.org/en/20/core/engines.html) desarrolla esta
 separación.
+
+`app/db/retry.py` reintenta únicamente `SQLSTATE 40001`, que representa un
+conflicto de serialización/concurrencia. La operación se ejecuta nuevamente en
+una transacción nueva, con backoff acotado. Esto sólo es correcto si el caso de
+uso es idempotente: login conserva el mismo UUID de sesión durante sus
+reintentos y logout actualiza condicionalmente una fila aún no revocada.
 
 ## Esquema y migraciones con Alembic
 
@@ -286,11 +327,15 @@ La suite combina niveles distintos:
 
 - `test_health.py` y `test_auth.py`: contrato HTTP rápido con `TestClient` y
   colaboradores reemplazados cuando corresponde;
+- `test_security.py` y `test_retry.py`: claims obligatorios, expiración y
+  política de reintentos;
 - `test_config.py`: invariantes de configuración;
 - `test_database.py`: construcción de engines PostgreSQL/DSQL;
 - `test_seed.py`: idempotencia del seed;
-- `test_integration.py`: migraciones, seed y login contra PostgreSQL real; y
-- `test_lambda.py`: evento API Gateway HTTP API v2 procesado por Mangum.
+- `test_integration.py`: migraciones, seed y ciclo login/sesión/logout contra
+  PostgreSQL real; y
+- `test_lambda.py`: eventos API Gateway HTTP API v2 y cookies procesados por
+  Mangum.
 
 Para desarrollo rápido:
 

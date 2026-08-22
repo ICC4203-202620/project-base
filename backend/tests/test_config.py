@@ -21,3 +21,8 @@ def test_production_rejects_development_secret():
 def test_production_requires_secure_cookie():
     with pytest.raises(ValidationError, match="COOKIE_SECURE"):
         Settings(environment="production", jwt_secret="injected-production-secret")
+
+
+def test_session_expiration_must_be_positive():
+    with pytest.raises(ValidationError, match="jwt_expiration_minutes"):
+        Settings(jwt_expiration_minutes=0)
