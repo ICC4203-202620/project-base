@@ -151,8 +151,10 @@ TCP 8000 solo para redes privadas si tu configuración lo requiere.
 
 Las migraciones están en `backend/migrations/versions` y se aplican con
 `alembic upgrade head`. El esquema usa SQLAlchemy Core, no ORM, y
-`app.main.handler` expone la app con Mangum para Lambda/API Gateway. Al pasar
-a Aurora DSQL hay que validar el dialecto, driver y autenticación del servicio.
+`app.main.handler` expone la app con Mangum para Lambda/API Gateway. La guía
+[Despliegue en AWS Lambda y migración a Aurora DSQL](aws-lambda.md) fija las
+decisiones de empaquetado, configuración, IAM, pooling, migraciones y
+observabilidad.
 
 ### Flujo de migraciones
 
@@ -176,7 +178,7 @@ docker compose run --rm --entrypoint alembic backend downgrade -1
 ```
 
 Cada pull request que cambie tablas, columnas, índices o restricciones debe
-incluir su migración y explicar si hay impacto sobre datos existentes. La URL de
-conexión se obtiene de `DATABASE_URL`; Alembic usa una conexión sin pool al
-ejecutarse, apropiada para tareas de corta duración y para futuros entornos de
-despliegue.
+incluir su migración y explicar si hay impacto sobre datos existentes. Con
+PostgreSQL, la conexión se obtiene de `DATABASE_URL`. Con DSQL, Alembic usa el
+mismo adaptador IAM que la aplicación. La tarea de migración abre un pool de una
+sola conexión, lo descarta al terminar y nunca se ejecuta al iniciar Lambda.

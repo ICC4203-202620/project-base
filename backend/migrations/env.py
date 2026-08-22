@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-import os
-
 from alembic import context
-from sqlalchemy import engine_from_config, pool
 
+from app.core.config import settings
+from app.db.engine import create_database_engine, database_url
 from app.db.schema import metadata
 
 config = context.config
-config.set_main_option(
-    "sqlalchemy.url",
-    os.environ.get("DATABASE_URL", config.get_main_option("sqlalchemy.url")),
-)
+config.set_main_option("sqlalchemy.url", str(database_url(settings)))
 target_metadata = metadata
 
 
@@ -28,20 +24,24 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+    connectable = create_database_engine(
+        settings,
+        application_name="foodie-migrations",
+        pool_size=1,
+        max_overflow=0,
     )
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-            compare_server_default=True,
-        )
-        with context.begin_transaction():
-            context.run_migrations()
+    try:
+        with connectable.connect() as connection:
+            context.configure(
+                connection=connection,
+                target_metadata=target_metadata,
+                compare_type=True,
+                compare_server_default=True,
+            )
+            with context.begin_transaction():
+                context.run_migrations()
+    finally:
+        connectable.dispose()
 
 
 if context.is_offline_mode():
