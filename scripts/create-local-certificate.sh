@@ -2,25 +2,25 @@
 set -eu
 
 if [ "$#" -ne 1 ]; then
-  echo "Uso: $0 <hostname-mDNS.local>" >&2
+  echo "Uso: $0 <hostname-o-ip-lan>" >&2
   exit 1
 fi
 
-host_name="$1"
-case "$host_name" in
-  *.local) ;;
-  *)
-    echo "El hostname debe terminar en .local (por ejemplo, mi-equipo.local)." >&2
-    exit 1
-    ;;
-esac
+host_or_ip="$1"
 
 if ! command -v mkcert >/dev/null 2>&1; then
   echo "No se encontró mkcert. Instálalo y ejecuta 'mkcert -install' primero." >&2
   exit 1
 fi
 
-mkdir -p certs
-mkcert +  -cert-file certs/local.pem +  -key-file certs/local-key.pem +  "$host_name" +  localhost +  127.0.0.1 +  ::1
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(dirname -- "$script_dir")
+certificate_dir="$repository_root/certs"
 
-echo "Certificado creado para https://$host_name:8000"
+mkdir -p "$certificate_dir"
+mkcert \
+  -cert-file "$certificate_dir/local.pem" \
+  -key-file "$certificate_dir/local-key.pem" \
+  "$host_or_ip" localhost 127.0.0.1 ::1
+
+echo "Certificado creado para https://$host_or_ip:8000"

@@ -82,10 +82,13 @@ Al registrar una actividad, el usuario decide si será pública o privada. La vi
 ## Estructura del repositorio
 
 ```text
-docs/        Enunciados de las entregas y documentación del proyecto.
+docs/        Enunciados de las entregas.
 frontend/    Aplicación cliente: la PWA de la entrega 2 y el frontend React de la entrega 3.
-backend/     Aplicación de backend: la API REST de las entregas 2 y 3 y el backend serverless de la entrega 4.
+backend/     API REST, backend serverless y su documentación técnica.
 ```
+
+La documentación técnica para ejecutar, probar y desplegar la API comienza en
+[backend/README.md](backend/README.md).
 
 ## Uso del repositorio
 

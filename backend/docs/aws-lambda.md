@@ -4,16 +4,58 @@ Esta guía registra las decisiones de arquitectura del issue #8. No hace falta
 cambiar rutas ni casos de uso al migrar: Uvicorn sirve `app.main:app` y Lambda
 invoca `app.main.handler` mediante Mangum.
 
+## Modelo mental de la migración
+
+**Serverless** no significa que no existan servidores. Significa que AWS
+administra su aprovisionamiento y ejecuta el código de la función cuando recibe
+un evento. La aplicación no mantiene un proceso Uvicorn permanentemente
+encendido ni administra una máquina virtual. La
+[introducción oficial a Lambda](https://docs.aws.amazon.com/lambda/latest/dg/concepts-basics.html)
+describe este modelo de ejecución.
+
+FastAPI es una aplicación [ASGI](https://asgi.readthedocs.io/en/latest/), una
+interfaz estándar entre aplicaciones web Python y sus servidores. En desarrollo,
+Uvicorn traduce HTTP a ASGI. En AWS, API Gateway traduce HTTP a un evento de
+Lambda y [Mangum](https://mangum.fastapiexpert.com/) adapta ese evento a ASGI.
+La misma aplicación FastAPI queda al final de ambos caminos:
+
+```text
+Desarrollo: cliente -> Uvicorn --------------------> FastAPI -> SQLAlchemy -> PostgreSQL
+AWS:        cliente -> API Gateway -> Lambda/Mangum -> FastAPI -> SQLAlchemy -> Aurora DSQL
+```
+
+Lambda puede crear un entorno nuevo para una invocación (**cold start**) o
+reutilizar uno ya inicializado (**warm start**). La aplicación puede aprovechar
+la reutilización para mejorar el rendimiento, pero no debe asumir que ocurrirá.
+
+API Gateway usa el formato de evento HTTP API v2, que representa la ruta, los
+encabezados, las cookies y el cuerpo de la solicitud. AWS documenta tanto ese
+[formato como la respuesta de la integración Lambda](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html).
+
+En esta guía aparecen dos usos de la palabra **migración**:
+
+- migrar la arquitectura es cambiar dónde se ejecutan la API y la base de
+  datos; y
+- una migración de Alembic es un cambio versionado del esquema de la base de
+  datos.
+
+Aurora DSQL es una base relacional distribuida y serverless para cargas
+transaccionales. Es compatible con herramientas y parte de la semántica de
+PostgreSQL, pero no implementa todas sus funciones. La documentación de AWS
+explica su [relación con PostgreSQL](https://docs.aws.amazon.com/aurora-dsql/latest/userguide/working-with.html).
+
 ## Decisiones
 
 - **API:** una función Lambda para la aplicación FastAPI completa, detrás de
-  API Gateway HTTP API con payload v2. Dividir por endpoint queda fuera de esta
-  migración y se evaluará solo si aparecen necesidades de escalado distintas.
+  API Gateway HTTP API con payload v2. Así se conserva el monolito y su
+  enrutamiento; dividir por endpoint queda fuera de esta migración y se
+  evaluará solo si aparecen necesidades de escalado distintas.
 - **Empaquetado:** archivo ZIP construido en Linux con AWS SAM
   (`sam build --use-container`). Psycopg contiene binarios nativos, por lo que
   no se debe construir el artefacto directamente en macOS o Windows.
 - **Base de datos:** PostgreSQL local usa el dialecto `postgresql+psycopg` y
-  `DATABASE_URL`. Aurora DSQL usa el adaptador oficial
+  `DATABASE_URL`. Un dialecto traduce las operaciones de SQLAlchemy a las
+  particularidades de una base. Aurora DSQL usa el adaptador oficial
   `aurora-dsql-sqlalchemy`, que genera credenciales IAM por conexión, valida TLS
   y resuelve las diferencias del dialecto.
 - **Migraciones:** Alembic corre como un paso separado y único del despliegue;
@@ -24,9 +66,11 @@ invoca `app.main.handler` mediante Mangum.
   secreto se resuelve mediante una referencia dinámica de CloudFormation, su
   rotación requiere actualizar la función para volver a resolverlo.
 - **Observabilidad:** CloudWatch recibe logs de Lambda y access logs JSON de API
-  Gateway. En producción se habilita AWS X-Ray (`Tracing: Active`), retención
-  explícita del log group, alarmas de errores/throttling y una alarma de 5xx del
-  API. Los logs no deben contener cookies, JWT ni credenciales.
+  Gateway. Los logs registran eventos; las métricas resumen valores en el
+  tiempo; y las trazas siguen una solicitud entre componentes. En producción
+  se habilita AWS X-Ray (`Tracing: Active`), retención explícita del log group,
+  alarmas de errores/throttling y una alarma de 5xx del API. Los logs no deben
+  contener cookies, JWT ni credenciales.
 
 ## Configuración
 
@@ -59,14 +103,25 @@ AURORA_DSQL_DATABASE=postgres
 temporales de la execution role de Lambda. El endpoint permite descubrir la
 región, por lo que no se requiere una variable de región propia.
 
-El engine y su pool se crean en scope de módulo. Una instancia warm de Lambda
-los reutiliza; instancias concurrentes tienen pools independientes. El tamaño
-recomendado inicial es una conexión y cero overflow por instancia. Se puede
-aumentar después de medir concurrencia y latencia. `pool_pre_ping` descarta
-conexiones cerradas y `pool_recycle=3300` evita reutilizarlas después de 55
-minutos, antes del máximo de una hora de DSQL.
+El engine y su pool se crean en scope de módulo. Los objetos creados fuera del
+handler pueden sobrevivir en un warm start, aunque la aplicación nunca debe
+depender de que eso ocurra. Este comportamiento está descrito en el
+[ciclo de vida del entorno de Lambda](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtime-environment.html).
+
+Una instancia warm reutiliza el engine y su pool; instancias concurrentes
+tienen pools independientes. El tamaño recomendado inicial es una conexión y
+cero overflow por instancia. Se puede aumentar después de medir concurrencia y
+latencia. `pool_pre_ping` descarta conexiones cerradas y `pool_recycle=3300`
+evita reutilizarlas después de 55 minutos, antes del máximo de una hora de DSQL.
 
 ## IAM y roles de base de datos
+
+Un **rol de ejecución** (_execution role_) es la identidad IAM que Lambda asume
+al ejecutar la función. No es lo mismo que un rol interno de PostgreSQL/DSQL:
+IAM autoriza la conexión al cluster y DSQL usa el rol de base de datos para
+decidir qué tablas y operaciones permite. La aplicación obtiene credenciales
+temporales a partir del rol de ejecución; no guarda una contraseña permanente de
+base de datos.
 
 No se usa `admin` desde la API:
 
@@ -88,7 +143,7 @@ Los detalles oficiales están en
 
 El artefacto de Lambda debe instalar el extra `aws` del backend:
 
-```sh
+```console
 cd backend
 python -m pip install '.[aws]' --target build/package
 ```
@@ -114,7 +169,7 @@ una herramienta de desarrollo y pruebas.
 Después de crear o actualizar el cluster, el pipeline ejecuta desde un job
 efímero con la identidad de migraciones:
 
-```sh
+```console
 cd backend
 DATABASE_BACKEND=aurora-dsql \
 AURORA_DSQL_ENDPOINT="$AURORA_DSQL_ENDPOINT" \
@@ -122,26 +177,28 @@ AURORA_DSQL_USER=admin \
 alembic upgrade head
 ```
 
-DSQL no implementa todo PostgreSQL. Cada nueva migración debe compilarse y
-probarse contra un cluster de integración. En particular, el adaptador traduce
-índices a creación asíncrona y omite foreign keys; si el dominio incorpora
-foreign keys, la integridad referencial también debe protegerse en la
-aplicación. Las transacciones de escritura deben ser pequeñas, idempotentes y
-reintentables ante conflictos de control de concurrencia optimista.
+DSQL no implementa todo PostgreSQL. "Compatible" permite reutilizar muchas
+consultas y herramientas, pero no promete equivalencia completa. Cada nueva
+migración debe compilarse y probarse contra un cluster de integración. En
+particular, el adaptador traduce índices a creación asíncrona y omite foreign
+keys; si el dominio incorpora foreign keys, la integridad referencial también
+debe protegerse en la aplicación. Las transacciones de escritura deben ser
+pequeñas, idempotentes y reintentables ante conflictos de control de
+concurrencia optimista.
 
 ## Validación mínima
 
 `tests/test_lambda.py` entrega a Mangum un evento HTTP API v2 realista y exige
 que `GET /healthz` responda igual que bajo Uvicorn. Antes de desplegar:
 
-```sh
+```console
 cd backend
 pytest tests/test_lambda.py tests/test_database.py tests/test_config.py
 ```
 
 Después del despliegue:
 
-```sh
+```console
 curl --fail-with-body https://<api-id>.execute-api.<region>.amazonaws.com/healthz
 ```
 
@@ -151,6 +208,10 @@ verifica que no exista seed de demostración.
 
 ## Referencias oficiales
 
+- [Cómo funciona AWS Lambda](https://docs.aws.amazon.com/lambda/latest/dg/concepts-basics.html)
+- [Integración de API Gateway HTTP API con Lambda](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-develop-integrations-lambda.html)
+- [Documentación de Mangum](https://mangum.fastapiexpert.com/)
+- [Introducción a Aurora DSQL](https://docs.aws.amazon.com/aurora-dsql/latest/userguide/getting-started.html)
 - [Adaptadores y conectores de Aurora DSQL](https://docs.aws.amazon.com/aurora-dsql/latest/userguide/aws-sdks.html)
 - [Adaptador oficial de SQLAlchemy](https://github.com/awslabs/aurora-dsql-orms/tree/main/python/sqlalchemy)
 - [Cuotas y límites de DSQL](https://docs.aws.amazon.com/aurora-dsql/latest/userguide/CHAP_quotas.html)
