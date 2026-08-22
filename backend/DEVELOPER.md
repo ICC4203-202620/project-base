@@ -1,0 +1,360 @@
+# Desarrollo y arquitectura del backend
+
+Esta guía explica cómo está construido el backend y cómo extenderlo sin romper
+sus contratos de ejecución local ni su futura migración a AWS. Para instalar
+herramientas, iniciar Compose, ejecutar pruebas o configurar HTTPS, comienza en
+el [README del backend](README.md).
+
+## Objetivos arquitectónicos
+
+El backend parte como un **monolito modular**: una sola aplicación y un solo
+artefacto de despliegue, con responsabilidades separadas en módulos Python. No
+es un conjunto de microservicios. Esta elección reduce complejidad accidental
+durante las primeras entregas y conserva un camino directo hacia una función
+Lambda que contiene la aplicación completa.
+
+Las decisiones centrales son:
+
+- mantener las rutas HTTP independientes del servidor que ejecuta la app;
+- concentrar la configuración en variables de entorno validadas;
+- acceder a datos mediante SQLAlchemy Core, sin acoplar la API a un ORM;
+- versionar cada cambio del esquema con Alembic;
+- ocultar la elección PostgreSQL/Aurora DSQL detrás de la creación del engine;
+- ejecutar migraciones fuera del runtime de Lambda; y
+- probar la misma aplicación tanto como ASGI local como handler de Lambda.
+
+## Mapa de la arquitectura
+
+```text
+                         app/main.py
+                    crea y compone FastAPI
+                              |
+                              v
+cliente -> nginx -> FastAPI / APIRouter -> Pydantic -> caso de uso
+                                               |             |
+                                               |             v
+                                               |      SQLAlchemy Core
+                                               |             |
+                                               |             v
+                                               |     Engine + Psycopg
+                                               |             |
+                                               +---- PostgreSQL / DSQL
+
+desarrollo: Uvicorn -----------------> app.main:app
+AWS: API Gateway -> Lambda -> Mangum -> app.main:app
+
+Alembic -> metadata de SQLAlchemy -> migraciones versionadas -> base de datos
+```
+
+nginx, Vite y TLS pertenecen al entorno que rodea la API, no a su lógica. nginx
+presenta frontend y backend bajo un mismo origen; internamente envía `/api/*`,
+`/healthz`, `/docs` y `/openapi.json` a FastAPI.
+
+## Stack y función de cada componente
+
+| Tecnología | Responsabilidad en el proyecto | Ubicación principal |
+| --- | --- | --- |
+| [Python 3.13](https://docs.python.org/3/) | Lenguaje y runtime | Todo `backend/` |
+| [FastAPI](https://fastapi.tiangolo.com/) | Aplicación ASGI, routing, validación integrada y OpenAPI | `app/main.py`, `app/api/` |
+| [Pydantic](https://docs.pydantic.dev/latest/concepts/models/) | Modelos de entrada y validación de datos | `app/api/` |
+| [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) | Configuración tipada desde variables de entorno | `app/core/config.py` |
+| [Uvicorn](https://www.uvicorn.org/) | Servidor ASGI del contenedor local | `entrypoint.sh` |
+| [SQLAlchemy Core](https://docs.sqlalchemy.org/en/20/tutorial/) | Tablas, expresiones SQL, conexiones y transacciones; no se usa el ORM | `app/db/`, `app/api/` |
+| [Psycopg 3](https://www.psycopg.org/psycopg3/docs/) | Driver PostgreSQL usado por SQLAlchemy | Configuración del engine |
+| [Alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html) | Historial ejecutable y versionado del esquema | `migrations/` |
+| [argon2-cffi](https://argon2-cffi.readthedocs.io/en/stable/api.html) | Hash y verificación de contraseñas con Argon2 | `app/core/security.py` |
+| [PyJWT](https://pyjwt.readthedocs.io/en/stable/) | Firma de tokens JWT para la sesión | `app/core/security.py` |
+| [Mangum](https://mangum.fastapiexpert.com/) | Adaptación de eventos API Gateway/Lambda a ASGI | `app/main.py` |
+| [Pytest](https://docs.pytest.org/) | Pruebas unitarias, de integración y del handler Lambda | `tests/` |
+| [Docker Compose](https://docs.docker.com/compose/) | Entorno reproducible de desarrollo y pruebas | `../docker-compose.yml` |
+
+FastAPI no reemplaza a Uvicorn: FastAPI implementa la aplicación ASGI y
+Uvicorn es el servidor que recibe HTTP y la ejecuta localmente. En AWS tampoco
+se inicia Uvicorn; Mangum traduce el evento de API Gateway al protocolo ASGI
+que entiende la misma aplicación.
+
+## Organización del código
+
+```text
+backend/
+├── app/
+│   ├── main.py             composición de FastAPI y entrypoints ASGI/Lambda
+│   ├── api/
+│   │   └── auth.py         contratos HTTP y router de autenticación
+│   ├── core/
+│   │   ├── config.py       configuración y validaciones por ambiente
+│   │   └── security.py     passwords y creación de JWT
+│   └── db/
+│       ├── engine.py       engines PostgreSQL/DSQL y políticas de pool
+│       ├── session.py      engine compartido por el proceso
+│       ├── schema.py       metadata y tablas SQLAlchemy Core
+│       └── seed.py         datos de demostración optativos
+├── migrations/             configuración y revisiones de Alembic
+├── tests/                  suite automatizada
+├── entrypoint.sh           migración, seed y Uvicorn en el contenedor local
+└── pyproject.toml          paquete, dependencias y herramientas
+```
+
+### Límites entre módulos
+
+- `app/main.py` **compone** la aplicación. Incluye routers y middleware, pero no
+  implementa casos de uso.
+- `app/api/` contiene el contrato de transporte: paths, métodos, modelos
+  Pydantic, status codes, cookies y traducción de errores a HTTP.
+- `app/core/` contiene capacidades transversales que no dependen de HTTP ni de
+  una tabla concreta.
+- `app/db/` contiene la definición y construcción de la infraestructura de
+  persistencia.
+- `migrations/` registra cómo llevar una base desde una revisión de esquema a
+  la siguiente. No es código que atienda solicitudes.
+
+El alcance actual es pequeño y el login coordina su consulta directamente en
+el router. Cuando un caso de uso tenga varias reglas, escrituras o recursos,
+se debe introducir `app/services/` y mover allí esa coordinación. No conviene
+crear la capa antes de que exista lógica que abstraer, pero tampoco acumular
+lógica de negocio en los routers.
+
+## Dos entrypoints, una sola aplicación
+
+`app/main.py` exporta dos objetos:
+
+- `app`: la aplicación FastAPI que Uvicorn sirve como `app.main:app`; y
+- `handler`: `Mangum(app)`, invocado por Lambda como `app.main.handler`.
+
+Los routers y casos de uso no deben saber cuál entrypoint recibió la solicitud.
+La [guía de aplicaciones FastAPI en varios
+archivos](https://fastapi.tiangolo.com/tutorial/bigger-applications/) explica el
+patrón de composición con `APIRouter`.
+
+El endpoint `/healthz` y una prueba con un evento HTTP API v2 aseguran que ambos
+caminos mantengan el mismo comportamiento. La arquitectura AWS completa está
+en [Despliegue en AWS Lambda y Aurora DSQL](docs/aws-lambda.md).
+
+## Ciclo de una solicitud de login
+
+`POST /api/v1/auth/login` ilustra el recorrido actual:
+
+1. nginx conserva el path y entrega la solicitud a FastAPI;
+2. `app.main` selecciona el router incluido bajo `/api/v1`;
+3. Pydantic valida JSON como `LoginRequest`, incluido el formato del email;
+4. SQLAlchemy construye un `SELECT` sobre la tabla `users`;
+5. el engine obtiene una conexión Psycopg desde su pool;
+6. Argon2 compara la contraseña con `password_hash`;
+7. PyJWT firma un token HS256 con `sub` y `exp`; y
+8. FastAPI responde 204 y entrega el JWT en la cookie `session`.
+
+La cookie usa `HttpOnly`, `SameSite=Lax` y, bajo HTTPS, `Secure`. `HttpOnly`
+impide que JavaScript lea el JWT, pero el navegador puede adjuntarlo a futuras
+solicitudes. Un JWT firmado permite detectar modificaciones; su payload no está
+cifrado y no debe contener secretos.
+
+El esqueleto actual crea la sesión durante el login, pero todavía no incluye
+una dependencia FastAPI que lea y valide esa cookie para proteger otros
+endpoints. Esa autorización se agregará cuando existan rutas autenticadas.
+
+## Configuración
+
+`app/core/config.py` define `Settings`, que hereda de `BaseSettings`. Pydantic
+Settings lee las variables de entorno, convierte tipos y ejecuta validaciones
+al importar `settings`. La
+[documentación oficial de Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+describe esa resolución.
+
+Las variables se agrupan conceptualmente así:
+
+- ambiente: `ENVIRONMENT`;
+- base: `DATABASE_BACKEND`, `DATABASE_URL`, `AURORA_DSQL_*` y opciones del pool;
+- sesión: `JWT_SECRET`, `JWT_EXPIRATION_MINUTES` y `COOKIE_SECURE`;
+- navegador: `CORS_ORIGINS`; y
+- datos locales: `SEED_DEMO_USER`.
+
+En producción, la configuración rechaza el secreto de desarrollo y exige
+cookies `Secure`. Los secretos se inyectan desde la plataforma: no se agregan a
+archivos versionados ni a valores `VITE_*`, porque estos últimos terminan en el
+bundle público del frontend.
+
+Aunque el gateway evita CORS en el camino normal, la configuración CORS se
+conserva para el modo en que Vite se ejecuta directamente y la API se abre en
+otro origen.
+
+## Persistencia con SQLAlchemy Core
+
+El proyecto usa la API **Core**, no el ORM. Las tablas son objetos `Table`
+registrados en `metadata`; las consultas se construyen con expresiones como
+`select(users)` y se ejecutan mediante `Connection`. SQLAlchemy describe Core
+como su toolkit base para conectividad, expresiones SQL y resultados en el
+[tutorial unificado](https://docs.sqlalchemy.org/en/20/tutorial/).
+
+Esta elección mantiene explícitos SQL, transacciones y restricciones, y reduce
+la superficie que habrá que comprobar al migrar a un servicio compatible con
+PostgreSQL pero no idéntico como Aurora DSQL.
+
+### Engine, conexiones y transacciones
+
+`app/db/engine.py` es la frontera entre la aplicación y el proveedor de datos:
+
+- para PostgreSQL crea `postgresql+psycopg`;
+- para DSQL carga opcionalmente el adaptador oficial y autenticación IAM;
+- configura un pool acotado, `pool_pre_ping` y reciclaje de conexiones; y
+- permite que Alembic use un pool de una conexión.
+
+`app/db/session.py` crea el engine una sola vez en scope de módulo. Uvicorn lo
+reutiliza durante la vida del proceso y Lambda puede reutilizarlo durante warm
+starts. Cada entorno concurrente de Lambda posee su propio engine y pool.
+
+Usa el contexto según la intención:
+
+```python
+with engine.connect() as connection:
+    result = connection.execute(select(users))
+
+with engine.begin() as connection:
+    connection.execute(users.insert().values(...))
+```
+
+`connect()` es adecuado para lecturas o cuando el código controla la
+transacción. `begin()` confirma al salir si no hubo error y revierte ante una
+excepción. No mantengas una conexión global: el objeto global es el `Engine`,
+que administra el pool. La documentación de
+[Engine](https://docs.sqlalchemy.org/en/20/core/engines.html) desarrolla esta
+separación.
+
+## Esquema y migraciones con Alembic
+
+`app/db/schema.py` representa el esquema deseado actualmente. Los archivos de
+`migrations/versions/` representan el historial para alcanzarlo desde una base
+vacía o antigua. Son responsabilidades relacionadas, pero no intercambiables:
+crear una columna solo en `schema.py` no modifica ninguna base existente.
+
+Flujo para un cambio de esquema:
+
+1. modifica la metadata en `app/db/schema.py`;
+2. genera una revisión candidata con Alembic;
+3. lee y corrige `upgrade()` y `downgrade()`;
+4. prueba la revisión sobre PostgreSQL aislado; y
+5. incluye metadata, migración y pruebas en el mismo pull request.
+
+Con los servicios iniciados, desde la raíz del repositorio:
+
+```console
+docker compose run --rm --entrypoint alembic backend current
+docker compose run --rm --entrypoint alembic backend check
+docker compose run --rm --entrypoint alembic backend revision --autogenerate -m "describe el cambio"
+docker compose run --rm --entrypoint alembic backend upgrade head
+docker compose run --rm --entrypoint alembic backend downgrade -1
+```
+
+- `current` muestra la revisión aplicada;
+- `check` detecta diferencias que requerirían una revisión;
+- `revision --autogenerate` compara la base con `metadata` y propone código;
+- `upgrade head` aplica todas las revisiones pendientes; y
+- `downgrade -1` intenta revertir la última revisión.
+
+Autogenerate produce una **migración candidata**, no una migración garantizada.
+Alembic exige revisarla porque no todos los cambios pueden inferirse de forma
+segura. Consulta sus [capacidades y límites de
+autogenerate](https://alembic.sqlalchemy.org/en/latest/autogenerate.html).
+
+No edites una migración que ya se aplicó en un entorno compartido. Crea una
+nueva revisión. Si el cambio transforma o elimina datos, el PR debe documentar
+compatibilidad, estrategia de transición y reversibilidad.
+
+El contenedor local ejecuta `alembic upgrade head` antes de Uvicorn. Lambda no
+lo hace: en AWS las migraciones son un job separado del despliegue y la función
+no recibe permisos DDL.
+
+## Cómo agregar un endpoint
+
+1. Crea o amplía un módulo en `app/api/` y declara su `APIRouter`.
+2. Define modelos Pydantic explícitos para entrada y salida. Mientras sean
+   locales al recurso pueden vivir junto al router; si se comparten, muévelos a
+   un módulo dedicado.
+3. Mantén en el router las decisiones HTTP y mueve reglas de varios pasos a
+   `app/services/` cuando aparezcan.
+4. Construye consultas con SQLAlchemy Core y delimita la transacción.
+5. Si cambia el esquema, agrega la revisión Alembic correspondiente.
+6. Incluye el router en `app/main.py` bajo `/api/v1`.
+7. Agrega pruebas de éxito, validación, autorización y errores relevantes.
+8. Comprueba el contrato generado en `/docs` y `/openapi.json`.
+
+Usa rutas relativas `/api/v1/...` desde el frontend. No incorpores hosts,
+puertos ni nombres de ambiente en los módulos de la API.
+
+## Estrategia de pruebas
+
+La suite combina niveles distintos:
+
+- `test_health.py` y `test_auth.py`: contrato HTTP rápido con `TestClient` y
+  colaboradores reemplazados cuando corresponde;
+- `test_config.py`: invariantes de configuración;
+- `test_database.py`: construcción de engines PostgreSQL/DSQL;
+- `test_seed.py`: idempotencia del seed;
+- `test_integration.py`: migraciones, seed y login contra PostgreSQL real; y
+- `test_lambda.py`: evento API Gateway HTTP API v2 procesado por Mangum.
+
+Para desarrollo rápido:
+
+```console
+cd backend
+uv sync --group dev
+uv run pytest
+```
+
+Para la suite completa con PostgreSQL aislado:
+
+```console
+docker compose --profile test up --build --abort-on-container-exit --exit-code-from backend-tests backend-tests
+docker compose --profile test down -v --remove-orphans
+```
+
+Una prueba unitaria no reemplaza la prueba de migración. Todo cambio de tablas,
+restricciones o comportamiento dependiente de PostgreSQL requiere cobertura de
+integración.
+
+## Portabilidad hacia Lambda y Aurora DSQL
+
+Estas reglas mantienen abierta la migración futura:
+
+- la lógica depende de FastAPI/ASGI, no de objetos propios de Uvicorn;
+- `app.main.handler` adapta la aplicación completa mediante Mangum;
+- el código de API recibe un engine ya configurado y no genera tokens IAM;
+- las dependencias DSQL viven en el extra opcional `.[aws]`;
+- las conexiones se administran mediante pools pequeños y reciclables;
+- las migraciones no se ejecutan durante una invocación Lambda;
+- las transacciones de escritura deben ser pequeñas y reintentables; y
+- cada uso de una característica PostgreSQL debe comprobarse contra las
+  capacidades de DSQL.
+
+La guía [AWS Lambda y Aurora DSQL](docs/aws-lambda.md) detalla IAM, packaging,
+observabilidad y las diferencias de compatibilidad que deben verificarse.
+
+## Convenciones que deben preservarse
+
+- No guardar secretos, tokens, passwords ni claves privadas en Git.
+- No devolver hashes de contraseña ni incluir datos sensibles en JWT o logs.
+- No aceptar el secreto de desarrollo ni cookies sin `Secure` en producción.
+- No editar migraciones que ya hayan sido compartidas.
+- No ejecutar DDL desde la función Lambda.
+- No introducir el ORM o acceso SQL directo fuera de SQLAlchemy sin una
+  decisión arquitectónica explícita.
+- No depender de memoria local entre solicitudes: Lambda puede descartar el
+  entorno después de cualquier invocación.
+- No dividir el monolito en servicios solo por organización de carpetas; los
+  módulos son límites de código dentro de una aplicación.
+
+## Referencias oficiales
+
+- [FastAPI](https://fastapi.tiangolo.com/)
+- [FastAPI: aplicaciones en varios archivos](https://fastapi.tiangolo.com/tutorial/bigger-applications/)
+- [Pydantic: modelos](https://docs.pydantic.dev/latest/concepts/models/)
+- [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+- [Uvicorn](https://www.uvicorn.org/)
+- [SQLAlchemy: tutorial Core y ORM](https://docs.sqlalchemy.org/en/20/tutorial/)
+- [SQLAlchemy: configuración del Engine](https://docs.sqlalchemy.org/en/20/core/engines.html)
+- [Alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html)
+- [Alembic: autogenerate](https://alembic.sqlalchemy.org/en/latest/autogenerate.html)
+- [Psycopg 3](https://www.psycopg.org/psycopg3/docs/)
+- [argon2-cffi](https://argon2-cffi.readthedocs.io/en/stable/api.html)
+- [PyJWT](https://pyjwt.readthedocs.io/en/stable/)
+- [Mangum](https://mangum.fastapiexpert.com/)
+- [Pytest](https://docs.pytest.org/)

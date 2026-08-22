@@ -90,7 +90,9 @@ gateway/     Proxy nginx para servir frontend y API bajo un mismo origen local.
 
 La documentación técnica para ejecutar, probar y desplegar la API comienza en
 [backend/README.md](backend/README.md). El punto de partida del cliente y su
-contrato de paths están en [frontend/README.md](frontend/README.md).
+contrato de paths están en [frontend/README.md](frontend/README.md). La
+arquitectura interna y las convenciones para extender la API se explican en
+[backend/DEVELOPER.md](backend/DEVELOPER.md).
 
 ## Uso del repositorio
 

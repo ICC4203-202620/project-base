@@ -1,9 +1,10 @@
-# Backend: desarrollo local
+# Backend: instalación y ejecución local
 
 Este README explica cómo ejecutar, probar y conectar el backend. Los comandos
 comunes son los mismos en todas las plataformas; solo la instalación de las
 herramientas, la red y el almacén de certificados cambian entre sistemas
-operativos.
+operativos. Para entender la estructura del código o implementar funcionalidad,
+continúa con la [guía de desarrollo y arquitectura](DEVELOPER.md).
 
 Si es tu primera vez en el proyecto, sigue este orden:
 
@@ -271,47 +272,12 @@ entre sitios. Estas propiedades forman parte del mecanismo de
 - Si la API responde pero el navegador no conserva la sesión, verifica HTTPS,
   `COOKIE_SECURE=true` y que el frontend envíe credenciales con Fetch.
 
-## Migraciones y Lambda
+## Desarrollo, migraciones y despliegue
 
-Aquí una **migración** no significa copiar la base de datos a otro servidor,
-sino guardar como código un cambio versionado de su esquema: crear una tabla,
-agregar una columna o modificar un índice. El proyecto usa
-[Alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html) para que todos
-los entornos apliquen esos cambios en el mismo orden.
+La [guía de desarrollo y arquitectura](DEVELOPER.md) explica el stack, la
+organización de `app/`, el ciclo de una solicitud, las convenciones para crear
+endpoints y el flujo completo de migraciones con SQLAlchemy Core y Alembic.
 
-Las revisiones están en `migrations/versions` y se aplican desde `backend/` con
-`alembic upgrade head`. El esquema se declara con
-[SQLAlchemy Core](https://docs.sqlalchemy.org/en/20/core/), sin usar el ORM, y
-`app.main.handler` expone la app con Mangum para Lambda/API Gateway. La guía
-[Despliegue en AWS Lambda y migración a Aurora DSQL](docs/aws-lambda.md) fija
-las decisiones de empaquetado, configuración, IAM, pooling, migraciones y
-observabilidad.
-
-### Flujo de migraciones
-
-Los cambios al esquema se definen primero en `backend/app/db/schema.py` y se
-guardan luego en una nueva revisión de Alembic. No se edita una migración que ya
-ha sido aplicada en un entorno compartido. Una revisión autogenerada es un
-punto de partida: siempre hay que leerla antes de aplicarla.
-
-Con los contenedores iniciados, ejecuta estos comandos desde la raíz:
-
-```console
-docker compose run --rm --entrypoint alembic backend current
-docker compose run --rm --entrypoint alembic backend check
-docker compose run --rm --entrypoint alembic backend revision --autogenerate -m "describe el cambio"
-docker compose run --rm --entrypoint alembic backend upgrade head
-docker compose run --rm --entrypoint alembic backend downgrade -1
-```
-
-- `current` muestra la revisión aplicada actualmente;
-- `check` detecta si el esquema declarado requiere una nueva revisión;
-- `revision --autogenerate` propone el archivo de migración;
-- `upgrade head` aplica todas las revisiones pendientes; y
-- `downgrade -1` revierte una revisión cuando esta admite una reversión segura.
-
-Cada pull request que cambie tablas, columnas, índices o restricciones debe
-incluir su migración y explicar si hay impacto sobre datos existentes. Con
-PostgreSQL, la conexión se obtiene de `DATABASE_URL`. Con DSQL, Alembic usa el
-mismo adaptador IAM que la aplicación. La tarea de migración abre un pool de una
-sola conexión, lo descarta al terminar y nunca se ejecuta al iniciar Lambda.
+La guía de [despliegue en AWS Lambda y migración a Aurora
+DSQL](docs/aws-lambda.md) documenta el empaquetado, API Gateway, IAM, pooling,
+migraciones y observabilidad de la etapa serverless.
