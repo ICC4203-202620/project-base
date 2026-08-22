@@ -63,10 +63,40 @@ El contenedor aplica las migraciones y, solo en la configuración de Docker
 Compose de desarrollo, crea el usuario de prueba si no existe: correo
 `demo@example.com`, contraseña `demo-password`.
 
-El login es `POST /api/v1/auth/login`; devuelve 204 y establece una cookie
-`session` `HttpOnly`. El seed usa un UUID generado por la aplicación, no una
-contraseña ni identificador de producción. No incluyan secretos ni contraseñas
-de producción en Git.
+El backend ofrece el ciclo de sesión completo:
+
+| Método y path | Resultado |
+| --- | --- |
+| `POST /api/v1/auth/login` | Valida credenciales, persiste una sesión y entrega la cookie. |
+| `GET /api/v1/auth/session` | Devuelve la identidad y caducación de la sesión vigente. |
+| `POST /api/v1/auth/logout` | Revoca la sesión actual y elimina la cookie. |
+
+La cookie `session` contiene un JWT firmado y usa `HttpOnly`, por lo que el
+frontend no puede ni debe leerla. El navegador la envía con `credentials:
+"include"`. Login y logout devuelven `204 No Content`; una consulta sin sesión,
+con un token vencido o con una sesión revocada devuelve `401`.
+
+Para probar el contrato conservando la cookie entre comandos:
+
+```console
+curl -i -c foodie-cookie.txt \
+  -H 'Origin: http://localhost:5173' \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo@example.com","password":"demo-password"}' \
+  http://localhost:5173/api/v1/auth/login
+
+curl -i -b foodie-cookie.txt \
+  http://localhost:5173/api/v1/auth/session
+
+curl -i -b foodie-cookie.txt \
+  -H 'Origin: http://localhost:5173' \
+  -X POST http://localhost:5173/api/v1/auth/logout
+```
+
+Usa un archivo temporal propio si compartes el computador y elimínalo al
+terminar: contiene una credencial válida. El seed usa un UUID generado por la
+aplicación, no una contraseña ni identificador de producción. No incluyan
+secretos, cookies ni contraseñas de producción en Git.
 
 El seed está desactivado por defecto. Para activarlo fuera de Docker Compose,
 establece `SEED_DEMO_USER=true`; ejecutarlo nuevamente no duplica al usuario,
@@ -102,8 +132,8 @@ docker compose --profile test down -v --remove-orphans
 
 El perfil `test` crea `test-db` sin volumen persistente y el servicio
 `backend-tests` aplica las migraciones, ejecuta el seed y corre Pytest. Cubre
-la existencia de la tabla `users`, el usuario seed y un login real contra la
-base migrada; no usa la base `db` de desarrollo.
+las tablas `users` y `auth_sessions`, el usuario seed y el ciclo real de login,
+consulta y revocación contra la base migrada; no usa la base `db` de desarrollo.
 
 ## HTTPS local y acceso desde un teléfono
 
