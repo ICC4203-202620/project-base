@@ -60,8 +60,10 @@ diagnóstico. La interfaz interactiva de
 mediante el gateway en <http://localhost:5173/docs>.
 
 El contenedor aplica las migraciones y, solo en la configuración de Docker
-Compose de desarrollo, crea el usuario de prueba si no existe: correo
-`demo@example.com`, contraseña `demo-password`.
+Compose de desarrollo, carga datos docentes si no existen: el usuario
+`demo@example.com` con contraseña `demo-password`, ocho estilos de comida y
+diez restaurantes ficticios de Santiago. Sirven para explorar el API sin tener
+que ingresar datos manualmente; no representan locales comerciales reales.
 
 El backend ofrece el ciclo de sesión completo:
 
@@ -76,6 +78,37 @@ frontend no puede ni debe leerla. El navegador la envía con `credentials:
 "include"`. Login y logout devuelven `204 No Content`; una consulta sin sesión,
 con un token vencido o con una sesión revocada devuelve `401`.
 
+### API de restaurantes
+
+Todas las rutas de restaurantes requieren esa sesión:
+
+| Método y path | Resultado |
+| --- | --- |
+| `GET /api/v1/restaurants?limit=20&offset=0` | Lista una página ordenada de forma estable. |
+| `POST /api/v1/restaurants` | Crea un restaurante; responde `201` y publica `Location`. |
+| `GET /api/v1/restaurants/{id}` | Consulta un restaurante o responde `404`. |
+| `PATCH /api/v1/restaurants/{id}` | Modifica únicamente los campos presentes. |
+| `DELETE /api/v1/restaurants/{id}` | Elimina el recurso y responde `204`. |
+
+`limit` tiene el valor predeterminado 20, acepta de 1 a 100 y evita descargar
+una colección sin límite. `offset` comienza en 0. Cada respuesta contiene
+`id`, `name`, `address`, `latitude`, `longitude`, `cuisine_styles`,
+`created_at` y `updated_at`.
+
+Al crear o editar, `cuisine_styles` recibe uno o más slugs existentes. Los datos
+iniciales ofrecen `chilena`, `peruana`, `italiana`, `japonesa`, `india`,
+`vegana`, `cafeteria` y `sandwicheria`. La respuesta expande cada slug a un
+objeto con `id`, `slug` y nombre visible. FastAPI describe todos los modelos y
+permite probarlos en [`/docs`](http://localhost:5173/docs).
+
+Nombre y dirección se comparan sin distinguir mayúsculas ni espacios
+repetidos. Intentar crear la misma combinación responde `409 Conflict`; una
+coordenada fuera de rango, una lista vacía o un slug desconocido responde
+`422`. En esta base docente cualquier usuario autenticado puede modificar
+restaurantes. Esa simplificación permite practicar el CRUD, pero **no es un
+modelo de autorización apropiado para producción**: roles, ownership y
+moderación quedan para una evolución posterior.
+
 Para probar el contrato conservando la cookie entre comandos:
 
 ```console
@@ -89,6 +122,15 @@ curl -i -b foodie-cookie.txt \
   http://localhost:5173/api/v1/auth/session
 
 curl -i -b foodie-cookie.txt \
+  'http://localhost:5173/api/v1/restaurants?limit=3&offset=0'
+
+curl -i -b foodie-cookie.txt \
+  -H 'Origin: http://localhost:5173' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Restaurante del curso","address":"Monjitas 550, Santiago","latitude":-33.4369,"longitude":-70.6448,"cuisine_styles":["chilena","vegana"]}' \
+  http://localhost:5173/api/v1/restaurants
+
+curl -i -b foodie-cookie.txt \
   -H 'Origin: http://localhost:5173' \
   -X POST http://localhost:5173/api/v1/auth/logout
 ```
@@ -99,8 +141,10 @@ aplicación, no una contraseña ni identificador de producción. No incluyan
 secretos, cookies ni contraseñas de producción en Git.
 
 El seed está desactivado por defecto. Para activarlo fuera de Docker Compose,
-establece `SEED_DEMO_USER=true`; ejecutarlo nuevamente no duplica al usuario,
-porque primero verifica el email.
+establece `SEED_DEMO_DATA=true`. Los UUID de estilos y restaurantes son
+estables: ejecutarlo nuevamente no duplica filas ni reemplaza cambios hechos
+por un estudiante. La configuración rechaza explícitamente el seed en
+`ENVIRONMENT=production`.
 
 Para detener los servicios conservando los datos locales:
 
@@ -127,13 +171,19 @@ Para ejecutar la suite completa contra un PostgreSQL aislado, desde la raíz:
 
 ```console
 docker compose --profile test up --build --abort-on-container-exit --exit-code-from backend-tests backend-tests
-docker compose --profile test down -v --remove-orphans
+docker compose --profile test down --remove-orphans
 ```
 
 El perfil `test` crea `test-db` sin volumen persistente y el servicio
-`backend-tests` aplica las migraciones, ejecuta el seed y corre Pytest. Cubre
-las tablas `users` y `auth_sessions`, el usuario seed y el ciclo real de login,
-consulta y revocación contra la base migrada; no usa la base `db` de desarrollo.
+`backend-tests` prueba un ciclo completo de upgrade/downgrade, ejecuta el seed
+y corre Pytest. Cubre autenticación, CRUD, asociaciones, duplicados,
+idempotencia y validación contra la base migrada; no usa la base `db` de
+desarrollo.
+
+No agregues `-v` al comando de limpieza: Compose lo aplicaría a todo el
+proyecto y eliminaría también `postgres-data`, el volumen de la base de
+desarrollo. `test-db` no usa un volumen nombrado, por lo que eliminar su
+contenedor ya descarta la base de pruebas.
 
 ## HTTPS local y acceso desde un teléfono
 

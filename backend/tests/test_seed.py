@@ -1,49 +1,75 @@
-from uuid import UUID, uuid4
+from sqlalchemy import create_engine, func, select, update
+from sqlalchemy.pool import StaticPool
 
 from app.db import seed as seed_module
+from app.db.fixtures import CUISINE_STYLES, RESTAURANTS
+from app.db.schema import (
+    cuisine_styles,
+    metadata,
+    restaurant_cuisine_styles,
+    restaurants,
+    users,
+)
 
 
-class FakeConnection:
-    def __init__(self, existing_user_id=None):
-        self.existing_user_id = existing_user_id
-        self.inserted_values = None
-
-    def scalar(self, statement):
-        return self.existing_user_id
-
-    def execute(self, statement):
-        self.inserted_values = statement.compile().params
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return None
+def memory_engine():
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    metadata.create_all(engine)
+    return engine
 
 
-class FakeEngine:
-    def __init__(self, connection):
-        self.connection = connection
-
-    def begin(self):
-        return self.connection
-
-
-def test_seed_creates_development_user_once(monkeypatch):
-    connection = FakeConnection()
-    monkeypatch.setattr(seed_module, "engine", FakeEngine(connection))
-    monkeypatch.setattr(seed_module.settings, "seed_demo_user", True)
-
-    assert seed_module.seed() is True
-    assert connection.inserted_values["email"] == "demo@example.com"
-    assert connection.inserted_values["handle"] == "@demo"
-    assert isinstance(connection.inserted_values["id"], UUID)
-
-
-def test_seed_skips_existing_user(monkeypatch):
-    connection = FakeConnection(existing_user_id=uuid4())
-    monkeypatch.setattr(seed_module, "engine", FakeEngine(connection))
-    monkeypatch.setattr(seed_module.settings, "seed_demo_user", True)
+def test_seed_is_disabled_by_default(monkeypatch):
+    engine = memory_engine()
+    monkeypatch.setattr(seed_module, "engine", engine)
+    monkeypatch.setattr(seed_module.settings, "seed_demo_data", False)
 
     assert seed_module.seed() is False
-    assert connection.inserted_values is None
+    with engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(users)) == 0
+
+
+def test_seed_creates_all_demo_data_once(monkeypatch):
+    engine = memory_engine()
+    monkeypatch.setattr(seed_module, "engine", engine)
+    monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
+    monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
+
+    assert seed_module.seed() is True
+    assert seed_module.seed() is False
+
+    with engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(users)) == 1
+        assert connection.scalar(select(func.count()).select_from(cuisine_styles)) == len(
+            CUISINE_STYLES
+        )
+        assert connection.scalar(select(func.count()).select_from(restaurants)) == len(RESTAURANTS)
+        assert connection.scalar(
+            select(func.count()).select_from(restaurant_cuisine_styles)
+        ) == sum(len(fixture.cuisine_styles) for fixture in RESTAURANTS)
+
+
+def test_seed_does_not_overwrite_modified_fixture(monkeypatch):
+    engine = memory_engine()
+    monkeypatch.setattr(seed_module, "engine", engine)
+    monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
+    monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
+    seed_module.seed()
+
+    fixture = RESTAURANTS[0]
+    with engine.begin() as connection:
+        connection.execute(
+            update(restaurants)
+            .where(restaurants.c.id == fixture.id)
+            .values(name="Nombre editado por estudiante")
+        )
+
+    assert seed_module.seed() is False
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(select(restaurants.c.name).where(restaurants.c.id == fixture.id))
+            == "Nombre editado por estudiante"
+        )
