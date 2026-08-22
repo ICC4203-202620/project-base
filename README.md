@@ -85,10 +85,14 @@ Al registrar una actividad, el usuario decide si será pública o privada. La vi
 docs/        Enunciados de las entregas.
 frontend/    Aplicación cliente: la PWA de la entrega 2 y el frontend React de la entrega 3.
 backend/     API REST, backend serverless y su documentación técnica.
+gateway/     Proxy nginx para servir frontend y API bajo un mismo origen local.
 ```
 
 La documentación técnica para ejecutar, probar y desplegar la API comienza en
-[backend/README.md](backend/README.md).
+[backend/README.md](backend/README.md). El punto de partida del cliente y su
+contrato de paths están en [frontend/README.md](frontend/README.md). La
+arquitectura interna y las convenciones para extender la API se explican en
+[backend/DEVELOPER.md](backend/DEVELOPER.md).
 
 ## Uso del repositorio
 

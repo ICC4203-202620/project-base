@@ -1,6 +1,7 @@
 # Sistema operativo
 .DS_Store
-certs/
+certs/*
+!certs/.gitkeep
 Thumbs.db
 
 # Editores e IDEs

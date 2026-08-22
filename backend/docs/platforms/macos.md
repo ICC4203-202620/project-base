@@ -76,13 +76,13 @@ para seguir permitiendo pruebas en el computador, también `localhost`,
 
 ## 5. Red y firewall
 
-Docker Desktop publica el puerto 8000 en macOS. Si aparece una solicitud del
-firewall para permitir conexiones entrantes, autoriza Docker únicamente en
-redes de confianza. En redes institucionales puede existir aislamiento entre
-clientes aunque el firewall local permita la conexión.
+El perfil `.env.local` publica el gateway HTTPS en el puerto 5173 de macOS. Si
+aparece una solicitud del firewall para conexiones entrantes, autoriza Docker
+únicamente en redes de confianza. En redes institucionales puede existir
+aislamiento entre clientes aunque el firewall local permita la conexión.
 
 Continúa con la configuración común de
-[HTTPS desde el teléfono](../../README.md#acceso-desde-un-teléfono-https-en-la-red-local).
+[HTTPS local y desde el teléfono](../../README.md#https-local-y-acceso-desde-un-teléfono).
 
 ## 6. mDNS opcional
 
@@ -112,7 +112,7 @@ Después de iniciar Compose con la configuración HTTPS del README, prueba prime
 con validación completa:
 
 ```console
-curl https://192.168.1.40:8000/healthz
+curl https://192.168.1.40:5173/healthz
 ```
 
 Debes obtener `{"status":"ok"}`. Si el computador responde pero el teléfono

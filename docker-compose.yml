@@ -21,13 +21,28 @@ services:
       DATABASE_URL: postgresql+psycopg://foodie:foodie@db:5432/foodie
       JWT_SECRET: ${JWT_SECRET:-development-only-change-me-change-me}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
-      LOCAL_TLS: ${LOCAL_TLS:-false}
-      TLS_CERTFILE: ${TLS_CERTFILE:-/certs/local.pem}
-      TLS_KEYFILE: ${TLS_KEYFILE:-/certs/local-key.pem}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
       SEED_DEMO_USER: "true"
     ports: ["8000:8000"]
-    volumes: ["./certs:/certs:ro"]
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+  gateway:
+    build: ./gateway
+    depends_on:
+      - backend
+      - frontend
+    environment:
+      LOCAL_TLS: ${LOCAL_TLS:-false}
+    ports:
+      - "${GATEWAY_HTTP_PORT:-5173}:80"
+      - "${GATEWAY_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./certs:/certs:ro
   test-db:
     profiles: ["test"]
     image: postgres:17-alpine
@@ -56,3 +71,4 @@ services:
     entrypoint: ["/bin/sh", "/app/test-entrypoint.sh"]
 volumes:
   postgres-data:
+  frontend-node-modules:

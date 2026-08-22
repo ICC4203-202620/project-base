@@ -26,4 +26,4 @@ if ($LASTEXITCODE -ne 0) {
     throw "mkcert no pudo crear el certificado local."
 }
 
-Write-Host "Certificado creado para https://${HostOrIp}:8000"
+Write-Host "Certificado creado para https://${HostOrIp}:5173 y https://localhost:5173"

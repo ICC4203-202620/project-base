@@ -1,17 +1,18 @@
-# Backend: desarrollo local
+# Backend: instalación y ejecución local
 
 Este README explica cómo ejecutar, probar y conectar el backend. Los comandos
 comunes son los mismos en todas las plataformas; solo la instalación de las
 herramientas, la red y el almacén de certificados cambian entre sistemas
-operativos.
+operativos. Para entender la estructura del código o implementar funcionalidad,
+continúa con la [guía de desarrollo y arquitectura](DEVELOPER.md).
 
 Si es tu primera vez en el proyecto, sigue este orden:
 
 1. prepara el computador con la guía de tu plataforma;
 2. levanta la API con la sección [Inicio rápido](#inicio-rápido);
 3. ejecuta las [pruebas](#pruebas); y
-4. si usarás un teléfono, continúa con
-   [HTTPS en la red local](#acceso-desde-un-teléfono-https-en-la-red-local).
+4. si usarás HTTPS o un teléfono, continúa con
+   [HTTPS en la red local](#https-local-y-acceso-desde-un-teléfono).
 
 Guías para preparar el computador:
 
@@ -24,11 +25,15 @@ Guías para instalar la autoridad certificadora local en un dispositivo móvil:
 - [Android](docs/platforms/android.md)
 - [iOS y iPadOS](docs/platforms/ios.md)
 
+Guía para confiar la CA en un navegador del computador:
+
+- [Google Chrome y Mozilla Firefox](docs/platforms/browsers.md)
+
 Los comandos comunes se ejecutan desde la raíz del repositorio. El entorno usa
 [Docker Compose](https://docs.docker.com/compose/) para describir y ejecutar
-dos servicios: [PostgreSQL](https://www.postgresql.org/docs/17/) en `db` y la
-API en `backend`. Compose también crea la red privada que los conecta y el
-volumen que conserva los datos de PostgreSQL.
+cuatro servicios: [PostgreSQL](https://www.postgresql.org/docs/17/) en `db`, la
+API en `backend`, Vite en `frontend` y nginx en `gateway`. Compose también crea
+la red privada que los conecta y los volúmenes de desarrollo.
 
 Antes de comenzar, comprueba que Docker y Compose estén disponibles:
 
@@ -44,11 +49,15 @@ docker compose up --build
 ```
 
 La primera ejecución puede tardar porque Compose debe descargar o construir las
-imágenes. Cuando ambos servicios estén listos, la API queda en
-<http://localhost:8000>. La interfaz interactiva de
+imágenes. Cuando los servicios estén listos, abre el frontend a través del
+gateway en <http://localhost:5173>. nginx sirve la aplicación desde Vite y
+envía los paths `/api/*`, `/healthz` y `/docs` a FastAPI.
+
+La API también queda expuesta directamente en <http://localhost:8000> para
+diagnóstico. La interfaz interactiva de
 [OpenAPI](https://spec.openapis.org/oas/latest.html), generada por
-[FastAPI](https://fastapi.tiangolo.com/features/#automatic-docs), queda en
-<http://localhost:8000/docs>.
+[FastAPI](https://fastapi.tiangolo.com/features/#automatic-docs), se puede abrir
+mediante el gateway en <http://localhost:5173/docs>.
 
 El contenedor aplica las migraciones y, solo en la configuración de Docker
 Compose de desarrollo, crea el usuario de prueba si no existe: correo
@@ -96,18 +105,25 @@ El perfil `test` crea `test-db` sin volumen persistente y el servicio
 la existencia de la tabla `users`, el usuario seed y un login real contra la
 base migrada; no usa la base `db` de desarrollo.
 
-## Acceso desde un teléfono: HTTPS en la red local
+## HTTPS local y acceso desde un teléfono
 
-El navegador del teléfono no puede conectarse a `localhost` para alcanzar el
-backend del computador: en cada dispositivo, `localhost` designa a ese mismo
-dispositivo. Para probar la aplicación desde un teléfono hay que publicar la API
-en la red local y acceder mediante HTTPS.
+HTTPS también se puede usar en el mismo computador. Los helpers del proyecto
+emiten el certificado para `localhost`, `127.0.0.1`, `::1` y la dirección LAN o
+nombre mDNS proporcionado. Después de instalar la CA local, Chrome o Firefox
+pueden abrir <https://localhost:5173> sin una advertencia de certificado. Sigue
+la guía de [Chrome y Firefox](docs/platforms/browsers.md) para entender y
+verificar sus almacenes de confianza.
+
+El navegador del teléfono no puede conectarse a `localhost` para alcanzar los
+servicios del computador: en cada dispositivo, `localhost` designa a ese mismo
+dispositivo. Para probar la aplicación desde un teléfono hay que publicar el
+gateway en la red local y acceder mediante HTTPS.
 
 ### Conceptos que conviene recordar
 
 **HTTPS** es HTTP protegido por [TLS](https://www.rfc-editor.org/rfc/rfc8446).
 TLS cifra la conexión y permite que el cliente compruebe la identidad del
-servidor. Para identificarse, el backend presenta un **certificado X.509** que
+servidor. Para identificarse, el gateway presenta un **certificado X.509** que
 contiene su clave pública, su vigencia y los nombres o direcciones IP para los
 que es válido. El formato y la validación de estos certificados se definen en
 el [perfil X.509 de Internet](https://www.rfc-editor.org/rfc/rfc5280).
@@ -116,12 +132,12 @@ Una **autoridad certificadora** o **CA** firma certificados. Un navegador
 confía en un certificado del servidor cuando puede construir una cadena de
 firmas hasta una CA presente en su almacén de confianza. En producción se usa
 una CA pública. En desarrollo, [`mkcert`](https://github.com/FiloSottile/mkcert)
-crea una CA privada local y emite con ella un certificado para este backend.
+crea una CA privada local y emite con ella un certificado para este gateway.
 Por eso hay que instalar el certificado público de esa CA tanto en el
 computador como en el teléfono.
 
 ```text
-rootCA-key.pem --firma--> certs/local.pem --se presenta a--> navegador
+rootCA-key.pem --firma--> certs/local.pem --nginx lo presenta a--> navegador
 rootCA.pem     --se instala en--> almacén de confianza --lo consulta--> navegador
 ```
 
@@ -131,8 +147,8 @@ Los archivos cumplen funciones distintas:
 | --- | --- | --- |
 | `rootCA.pem` | Certificado público de la CA local | Se instala en los dispositivos de desarrollo. |
 | `rootCA-key.pem` | Clave privada de la CA local | No se copia ni se comparte: permite firmar otros certificados confiables. |
-| `certs/local.pem` | Certificado X.509 que presenta el backend | Permanece en el entorno del backend. |
-| `certs/local-key.pem` | Clave privada del backend | Permanece en el entorno del backend y no se publica. |
+| `certs/local.pem` | Certificado X.509 que presenta nginx | Se monta en el gateway local. |
+| `certs/local-key.pem` | Clave privada del gateway | Permanece en el computador y no se publica. |
 
 El navegador valida también que la IP o el nombre escrito en la URL aparezca
 en el certificado. Una IP debe coincidir exactamente, como explica la
@@ -180,27 +196,40 @@ archivo resultante está ignorado por Git y contiene esta configuración:
 ```dotenv
 LOCAL_TLS=true
 COOKIE_SECURE=true
-CORS_ORIGINS=https://192.168.1.40:5173
+GATEWAY_HTTP_PORT=5174
+GATEWAY_HTTPS_PORT=5173
 ```
 
-Reemplaza `192.168.1.40` por la dirección LAN o nombre `.local` elegido. Las
-variables tienen estos efectos:
+Las variables tienen estos efectos:
 
-- `LOCAL_TLS` indica al contenedor que Uvicorn debe servir HTTPS con el
-  certificado local;
-- `COOKIE_SECURE` impide que la cookie de sesión viaje por HTTP; y
-- `CORS_ORIGINS` enumera los orígenes autorizados para el frontend.
+- `LOCAL_TLS` indica al gateway nginx que termine TLS con el certificado local;
+  FastAPI y Vite siguen usando HTTP dentro de la red privada de Compose;
+- `COOKIE_SECURE` impide que la cookie de sesión viaje por HTTP;
+- `GATEWAY_HTTPS_PORT=5173` conserva el puerto habitual para la entrada HTTPS;
+  y
+- `GATEWAY_HTTP_PORT=5174` evita que los dos mapeos de Compose intenten usar el
+  mismo puerto. El gateway sirve solo HTTPS cuando `LOCAL_TLS=true`.
 
 En la Web, un **origen** es la combinación de esquema, host y puerto. Por eso
 `http://192.168.1.40:5173` y `https://192.168.1.40:5173` son orígenes distintos.
-CORS permite que la API autorice solicitudes del frontend cuando ambos tienen
-orígenes diferentes; la [guía de CORS de FastAPI](https://fastapi.tiangolo.com/tutorial/cors/)
-desarrolla este modelo.
+Con el gateway, el navegador recibe el frontend y llama a `/api/*` usando el
+mismo origen. No se necesita CORS para ese camino. La configuración CORS del
+backend se conserva para quienes ejecuten Vite directamente en el puerto 5173;
+la [guía de CORS de FastAPI](https://fastapi.tiangolo.com/tutorial/cors/)
+desarrolla esta diferencia.
 
-Inicia la API con el mismo comando en Linux, macOS y PowerShell:
+Inicia los servicios con el mismo comando en Linux, macOS y PowerShell:
 
 ```console
 docker compose --env-file .env.local up --build
+```
+
+Verifica primero desde el computador:
+
+```text
+https://localhost:5173/
+https://localhost:5173/healthz
+https://localhost:5173/docs
 ```
 
 ### 3. Confía la CA en el teléfono y verifica
@@ -215,9 +244,14 @@ docker compose --env-file .env.local up --build
 Desde el teléfono abre:
 
 ```text
-https://192.168.1.40:8000/healthz
-https://192.168.1.40:8000/docs
+https://192.168.1.40:5173/
+https://192.168.1.40:5173/healthz
+https://192.168.1.40:5173/docs
 ```
+
+El primer path viene de Vite; los otros dos pasan por nginx hacia FastAPI. El
+frontend usa URLs relativas como `/api/v1/auth/login`, por lo que la IP o nombre
+mDNS no queda escrito en su código.
 
 El login debe responder con una cookie `Secure; HttpOnly; SameSite=Lax`.
 `Secure` indica que el navegador solo debe enviarla por HTTPS; `HttpOnly`
@@ -228,7 +262,7 @@ entre sitios. Estas propiedades forman parte del mecanismo de
 ### Diagnóstico común
 
 - Abre primero `/healthz` desde el computador usando la misma dirección LAN.
-- `curl -k https://192.168.1.40:8000/healthz` desactiva deliberadamente la
+- `curl -k https://192.168.1.40:5173/healthz` desactiva deliberadamente la
   validación del certificado. Úsalo solo para separar un problema de red de uno
   de confianza; no demuestra que HTTPS esté configurado correctamente.
 - Si funciona en el computador pero no en el teléfono, revisa firewall,
@@ -236,50 +270,14 @@ entre sitios. Estas propiedades forman parte del mecanismo de
 - Si el navegador rechaza el certificado, confirma que este incluya la
   dirección exacta y que el teléfono confíe `rootCA.pem`.
 - Si la API responde pero el navegador no conserva la sesión, verifica HTTPS,
-  `COOKIE_SECURE=true`, el origen exacto en `CORS_ORIGINS` y que el frontend
-  envíe credenciales en las solicitudes cross-origin.
+  `COOKIE_SECURE=true` y que el frontend envíe credenciales con Fetch.
 
-## Migraciones y Lambda
+## Desarrollo, migraciones y despliegue
 
-Aquí una **migración** no significa copiar la base de datos a otro servidor,
-sino guardar como código un cambio versionado de su esquema: crear una tabla,
-agregar una columna o modificar un índice. El proyecto usa
-[Alembic](https://alembic.sqlalchemy.org/en/latest/tutorial.html) para que todos
-los entornos apliquen esos cambios en el mismo orden.
+La [guía de desarrollo y arquitectura](DEVELOPER.md) explica el stack, la
+organización de `app/`, el ciclo de una solicitud, las convenciones para crear
+endpoints y el flujo completo de migraciones con SQLAlchemy Core y Alembic.
 
-Las revisiones están en `migrations/versions` y se aplican desde `backend/` con
-`alembic upgrade head`. El esquema se declara con
-[SQLAlchemy Core](https://docs.sqlalchemy.org/en/20/core/), sin usar el ORM, y
-`app.main.handler` expone la app con Mangum para Lambda/API Gateway. La guía
-[Despliegue en AWS Lambda y migración a Aurora DSQL](docs/aws-lambda.md) fija
-las decisiones de empaquetado, configuración, IAM, pooling, migraciones y
-observabilidad.
-
-### Flujo de migraciones
-
-Los cambios al esquema se definen primero en `backend/app/db/schema.py` y se
-guardan luego en una nueva revisión de Alembic. No se edita una migración que ya
-ha sido aplicada en un entorno compartido. Una revisión autogenerada es un
-punto de partida: siempre hay que leerla antes de aplicarla.
-
-Con los contenedores iniciados, ejecuta estos comandos desde la raíz:
-
-```console
-docker compose run --rm --entrypoint alembic backend current
-docker compose run --rm --entrypoint alembic backend check
-docker compose run --rm --entrypoint alembic backend revision --autogenerate -m "describe el cambio"
-docker compose run --rm --entrypoint alembic backend upgrade head
-docker compose run --rm --entrypoint alembic backend downgrade -1
-```
-
-- `current` muestra la revisión aplicada actualmente;
-- `check` detecta si el esquema declarado requiere una nueva revisión;
-- `revision --autogenerate` propone el archivo de migración;
-- `upgrade head` aplica todas las revisiones pendientes; y
-- `downgrade -1` revierte una revisión cuando esta admite una reversión segura.
-
-Cada pull request que cambie tablas, columnas, índices o restricciones debe
-incluir su migración y explicar si hay impacto sobre datos existentes. Con
-PostgreSQL, la conexión se obtiene de `DATABASE_URL`. Con DSQL, Alembic usa el
-mismo adaptador IAM que la aplicación. La tarea de migración abre un pool de una
-sola conexión, lo descarta al terminar y nunca se ejecuta al iniciar Lambda.
+La guía de [despliegue en AWS Lambda y migración a Aurora
+DSQL](docs/aws-lambda.md) documenta el empaquetado, API Gateway, IAM, pooling,
+migraciones y observabilidad de la etapa serverless.

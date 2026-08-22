@@ -7,10 +7,10 @@ siguiendo la guía de [Linux](linux.md), [macOS](macos.md) o
 
 ## Qué significa instalar la CA
 
-El backend presenta `certs/local.pem`, un certificado X.509 firmado por la CA
-local de `mkcert`. iOS todavía no conoce esa CA, por lo que no puede validar la
-firma. Al instalar `rootCA.pem` y habilitar su confianza, agregas su certificado
-público al almacén de confianza del dispositivo. Revisa el
+El gateway nginx presenta `certs/local.pem`, un certificado X.509 firmado por
+la CA local de `mkcert`. iOS todavía no conoce esa CA, por lo que no puede
+validar la firma. Al instalar `rootCA.pem` y habilitar su confianza, agregas su
+certificado público al almacén de confianza del dispositivo. Revisa el
 [modelo completo de CA y certificados](../../README.md#conceptos-que-conviene-recordar)
 si estos archivos te resultan nuevos.
 
@@ -81,7 +81,7 @@ Conecta el iPhone o iPad a la misma red local que el computador y abre la URL
 exacta que configuraste, por ejemplo:
 
 ```text
-https://192.168.1.40:8000/healthz
+https://192.168.1.40:5173/healthz
 ```
 
 Deberías ver una respuesta exitosa sin una advertencia de certificado. Si
