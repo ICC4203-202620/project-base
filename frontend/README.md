@@ -6,10 +6,12 @@ de desarrollo, recarga en caliente y el build de producción, pero no impone un
 framework. La [guía oficial de Vite](https://vite.dev/guide/) describe estas dos
 responsabilidades.
 
-El esqueleto demuestra dos interacciones con el backend:
+El esqueleto demuestra la conectividad y el ciclo completo de autenticación:
 
-- `GET /healthz`, para comprobar la conectividad; y
-- `POST /api/v1/auth/login`, para comprobar Fetch, JSON y la cookie de sesión.
+- `GET /healthz`, para comprobar la conectividad;
+- `GET /api/v1/auth/session`, para reconstruir la interfaz al cargar la página;
+- `POST /api/v1/auth/login`, para iniciar una sesión; y
+- `POST /api/v1/auth/logout`, para revocarla y eliminar la cookie.
 
 No incluye `manifest`, `service worker`, soporte offline ni instalación como
 PWA. Esos elementos forman parte del trabajo de los grupos en la entrega 2.
@@ -29,6 +31,45 @@ Por ejemplo, el frontend llama a `fetch("/api/v1/auth/login")`. Como la URL es
 relativa, conserva automáticamente el esquema, host y puerto de la página. Esto
 produce un solo **origen web** y evita configurar una IP, un nombre mDNS o un
 dominio dentro del código fuente.
+
+## Ciclo de autenticación
+
+El frontend no guarda una copia de la sesión en `localStorage` ni intenta leer
+`document.cookie`. La cookie `session` usa `HttpOnly`: el navegador la recibe y
+la adjunta, pero JavaScript sólo conoce el resultado que entrega el backend. La
+[documentación de cookies seguras de
+MDN](https://developer.mozilla.org/docs/Web/Security/Practical_implementation_guides/Cookies#httponly)
+explica por qué este atributo reduce la exposición de una credencial ante
+scripts.
+
+Al cargar o recargar la página, el controlador consulta `/auth/session` con
+`credentials: "include"`. La interfaz representa cuatro estados explícitos:
+
+| Estado | Qué significa | Interfaz |
+| --- | --- | --- |
+| `loading` | Aún no hay una respuesta confiable. | Mensaje transitorio; no muestra prematuramente el formulario. |
+| `anonymous` | El backend respondió `401`: no hay sesión vigente. | Formulario de login y explicación de `HttpOnly`. |
+| `authenticated` | El backend confirmó usuario y caducación. | Identidad, fecha local de expiración y logout. |
+| `unavailable` | Falló la red o el servicio respondió un error de infraestructura. | Mensaje diferente de credenciales inválidas y acción de reintento. |
+
+Login responde `204 No Content`, pero eso no basta para cambiar la interfaz a
+autenticada. Inmediatamente después se consulta `/auth/session` y sólo un `200`
+confirma el nuevo estado. Logout también responde `204`; el backend lo trata de
+forma idempotente aunque la sesión haya caducado mientras la página estaba
+abierta.
+
+Los módulos mantienen responsabilidades separadas sin introducir un framework:
+
+```text
+src/api.js   -> Fetch, URLs, credentials y formato común de errores
+src/auth.js  -> transiciones loading/anonymous/authenticated/unavailable
+src/main.js  -> eventos del DOM, renderizado y formato local de la caducación
+```
+
+`index.html` contiene desde el inicio el panel `loading` y mantiene ocultos los
+demás. Así se evita mostrar por un instante el formulario antes de conocer la
+sesión. El estado textual usa `role="status"` y `aria-live="polite"` para que
+las tecnologías de asistencia anuncien los cambios sin interrumpir al usuario.
 
 La misma convención sirve para las siguientes etapas:
 
@@ -91,12 +132,37 @@ el gateway de Compose en vez de esta alternativa.
 ```console
 npm run dev       # servidor de desarrollo
 npm run build     # genera dist/ para un despliegue estático
+npm test          # prueba el cliente HTTP y las transiciones de autenticación
 npm run preview   # sirve localmente el contenido de dist/
 ```
 
 `dist/` no se versiona. En la entrega 3, el pipeline construirá este directorio
 y lo incorporará a la imagen del monolito. En la entrega 4, el mismo contenido
 podrá publicarse en un origen estático para CloudFront.
+
+### Verificación del flujo
+
+Las pruebas usan el runner incorporado en Node.js, por lo que no añaden un
+framework de testing. Comprueban URLs relativas, `credentials: "include"`,
+errores HTTP frente a errores de red y todas las transiciones de sesión:
+
+```console
+cd frontend
+npm test
+npm run build
+```
+
+Para una comprobación manual con el stack iniciado:
+
+1. abre la página y verifica que el estado inicial transitorio termina en el
+   formulario;
+2. usa una contraseña incorrecta y comprueba que el mensaje habla de
+   credenciales, no de conectividad;
+3. inicia sesión con `demo@example.com` y `demo-password`;
+4. recarga y confirma que la identidad continúa visible;
+5. cierra sesión y recarga para comprobar que vuelve el formulario; y
+6. detén temporalmente el backend y usa «Volver a intentar» para observar el
+   estado de indisponibilidad.
 
 ## Convenciones para el desarrollo
 
@@ -106,6 +172,10 @@ podrá publicarse en un origen estático para CloudFront.
   a reconocer el contrato de autenticación de Fetch.
 - No intentes leer la cookie `session`: es `HttpOnly` y el navegador la
   administra.
+- No deduzcas una sesión a partir del `204` de login: consulta `/auth/session`.
+- Trata `401 Unauthorized` como ausencia de sesión, no como una falla de red;
+  la semántica del código está definida en
+  [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#name-401-unauthorized).
 - No agregues secretos al frontend. Todo valor incluido en el build queda
   disponible para quien descargue la aplicación.
 - Conserva `/api` para el backend al definir rutas de la futura aplicación
@@ -114,6 +184,7 @@ podrá publicarse en un origen estático para CloudFront.
 Referencias:
 
 - [Fetch API](https://developer.mozilla.org/docs/Web/API/Fetch_API/Using_Fetch)
+- [Fetch: opción `credentials`](https://developer.mozilla.org/docs/Web/API/Request/credentials)
 - [Opciones del servidor Vite](https://vite.dev/config/server-options)
 - [Proxy WebSocket de nginx](https://nginx.org/en/docs/http/websocket.html)
 - [Políticas de caché administradas de CloudFront](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/using-managed-cache-policies.html)

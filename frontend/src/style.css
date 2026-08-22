@@ -12,6 +12,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   min-width: 320px;
   min-height: 100vh;
@@ -121,6 +125,43 @@ form {
 
 form button {
   margin-top: 0.5rem;
+}
+
+.auth-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.auth-panel > p {
+  color: #465249;
+}
+
+.session-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.9rem;
+  margin: 0;
+}
+
+.session-summary div {
+  min-width: 0;
+  padding: 0.8rem;
+  border: 1px solid #d7ddd2;
+  border-radius: 0.65rem;
+  background: #f8faf6;
+}
+
+.session-summary dt {
+  color: #68736b;
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.session-summary dd {
+  overflow-wrap: anywhere;
+  margin: 0.25rem 0 0;
 }
 
 label {
