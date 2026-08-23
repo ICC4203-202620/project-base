@@ -1,7 +1,7 @@
 param(
-    [Parameter(Mandatory = $true, Position = 0)]
+    [Parameter(Mandatory = $true, Position = 0, ValueFromRemainingArguments = $true)]
     [ValidateNotNullOrEmpty()]
-    [string]$HostOrIp
+    [string[]]$HostsOrIps
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,13 +17,16 @@ $KeyFile = Join-Path $CertificateDirectory "local-key.pem"
 
 New-Item -ItemType Directory -Force -Path $CertificateDirectory | Out-Null
 
-& mkcert `
-    -cert-file $CertificateFile `
-    -key-file $KeyFile `
-    $HostOrIp localhost 127.0.0.1 "::1"
+$MkcertArguments = @(
+    "-cert-file", $CertificateFile,
+    "-key-file", $KeyFile
+) + $HostsOrIps + @("localhost", "127.0.0.1", "::1")
+
+& mkcert @MkcertArguments
 
 if ($LASTEXITCODE -ne 0) {
     throw "mkcert no pudo crear el certificado local."
 }
 
-Write-Host "Certificado creado para https://${HostOrIp}:5173 y https://localhost:5173"
+$Urls = @($HostsOrIps | ForEach-Object { "https://${_}:5173" }) + "https://localhost:5173"
+Write-Host ("Certificado creado para " + ($Urls -join ", "))

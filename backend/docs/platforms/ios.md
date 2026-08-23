@@ -52,7 +52,14 @@ Después de abrir el certificado:
 
 Si **Perfil descargado** no aparece, revisa **General > VPN y gestión de
 dispositivos**. Apple describe este proceso en
-[Instalar o eliminar perfiles de configuración](https://support.apple.com/102400).
+[Instalar un perfil de configuración](https://support.apple.com/es-es/102400).
+Apple elimina automáticamente un perfil pendiente si no lo instalas dentro de
+ocho minutos; si ocurre, vuelve a abrir `rootCA.pem` y repite el proceso.
+
+En versiones actuales de iOS, Protección del dispositivo en caso de robo puede
+bloquear la instalación fuera de una ubicación habitual. Haz esta preparación
+en una ubicación conocida y conserva las protecciones del dispositivo; no las
+desactives sólo para completar el ejercicio.
 
 Un dispositivo administrado por una institución puede impedir la instalación o
 la modificación de confianza. En ese caso no intentes evadir la política: usa
@@ -70,7 +77,7 @@ la confianza de la CA:
 
 Este paso adicional es necesario para certificados raíz instalados
 manualmente, como explica Apple en
-[Confiar en certificados instalados manualmente](https://support.apple.com/102390).
+[Confiar en certificados instalados manualmente](https://support.apple.com/es-es/102390).
 Instalar el perfil coloca el certificado en el dispositivo; habilitar la
 confianza autoriza además su uso para validar conexiones TLS. Son dos decisiones
 separadas.
@@ -78,7 +85,7 @@ separadas.
 ## 5. Verifica desde Safari
 
 Conecta el iPhone o iPad a la misma red local que el computador y abre la URL
-exacta que configuraste, por ejemplo:
+con el mismo host de acceso que incluiste en el certificado, por ejemplo:
 
 ```text
 https://192.168.1.40:5173/healthz
@@ -86,9 +93,10 @@ https://192.168.1.40:5173/healthz
 
 Deberías ver una respuesta exitosa sin una advertencia de certificado. Si
 Safari indica que el nombre del certificado no coincide, vuelve a generarlo con
-la IP que aparece en la URL. Si elegiste el nombre `.local` opcional, recuerda
-que [mDNS solo funciona en el enlace local](../../README.md#ip-local-dns-y-mdns)
-y que ese nombre exacto también debe estar en el certificado.
+el host exacto que aparece en la URL. Si elegiste el nombre `.local` opcional,
+recuerda que
+[mDNS solo funciona en el enlace local](../../README.md#ip-local-dns-y-mdns) y
+que ese nombre exacto también debe estar en el certificado.
 
 ## 6. Quita la CA cuando termines
 

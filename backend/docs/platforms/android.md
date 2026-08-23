@@ -41,7 +41,9 @@ CA. No necesitas copiar el certificado del servidor ni ninguna clave privada.
 
 Puedes transferir `rootCA.pem` por USB, almacenamiento en la nube u otro canal
 de confianza. Si el selector de archivos no muestra archivos `.pem`, crea una
-copia llamada `rootCA.crt`; no cambies el archivo original.
+copia llamada `rootCA.crt`; no cambies el archivo original. Guarda o descarga
+la copia en el almacenamiento local del dispositivo antes de abrir el selector
+de certificados.
 
 ## 3. Instala la CA
 
@@ -55,10 +57,13 @@ En versiones recientes de Android, la ruta suele ser:
 6. Selecciona `rootCA.pem` o `rootCA.crt` y confirma la advertencia.
 
 El dispositivo puede pedirte que configures o ingreses el PIN, patrón o
-contraseña de bloqueo. En algunos dispositivos la opción aparece como
-**Certificado Wi-Fi**. Si la ruta es distinta, busca "certificado" o
-"credenciales" dentro de Configuración. Google documenta el flujo actual para
-sus dispositivos en [Agregar y quitar certificados](https://support.google.com/pixelphone/answer/2844832).
+contraseña de bloqueo. Si la ruta es distinta, busca "certificado" o
+"credenciales" dentro de Configuración.
+
+> Selecciona específicamente **Certificado de CA**. **Certificado Wi-Fi** y
+> **Certificado de usuario para VPN y aplicaciones** son categorías distintas
+> y pueden exigir una clave privada. No las uses para confiar la CA HTTPS de
+> este proyecto.
 
 Un dispositivo administrado por una institución puede impedir que el usuario
 agregue autoridades certificadoras. En ese caso no intentes evadir la política:
@@ -66,8 +71,8 @@ usa un dispositivo personal de desarrollo o consulta a su administrador.
 
 ## 4. Verifica desde Chrome
 
-Conecta el teléfono a la misma red local que el computador y abre la URL exacta
-que configuraste, por ejemplo:
+Conecta el teléfono a la misma red local que el computador y abre la URL con el
+mismo host de acceso que incluiste en el certificado, por ejemplo:
 
 ```text
 https://192.168.1.40:5173/healthz
@@ -75,9 +80,10 @@ https://192.168.1.40:5173/healthz
 
 Deberías ver una respuesta exitosa sin una advertencia de certificado. Si el
 navegador indica que el nombre del certificado no coincide, vuelve a generarlo
-con la IP que aparece en la URL. Si elegiste el nombre `.local` opcional,
-recuerda que [mDNS solo funciona en el enlace local](../../README.md#ip-local-dns-y-mdns)
-y que ese nombre exacto también debe estar en el certificado.
+incluyendo exactamente el host que aparece en la URL. Si elegiste el nombre
+`.local` opcional, recuerda que
+[mDNS solo funciona en el enlace local](../../README.md#ip-local-dns-y-mdns) y
+que ese nombre exacto también debe estar en el certificado.
 
 ## 5. Aplicaciones Android nativas
 
