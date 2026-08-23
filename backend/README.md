@@ -188,9 +188,10 @@ contenedor ya descarta la base de pruebas.
 ## HTTPS local y acceso desde un teléfono
 
 HTTPS también se puede usar en el mismo computador. Los helpers del proyecto
-emiten el certificado para `localhost`, `127.0.0.1`, `::1` y la dirección LAN o
-nombre mDNS proporcionado. Después de instalar la CA local, Chrome o Firefox
-pueden abrir <https://localhost:5173> sin una advertencia de certificado. Sigue
+emiten el certificado para `localhost`, `127.0.0.1`, `::1` y una o más
+direcciones LAN o nombres mDNS proporcionados. Después de instalar la CA local,
+Chrome o Firefox pueden abrir <https://localhost:5173> sin una advertencia de
+certificado. Sigue
 la guía de [Chrome y Firefox](docs/platforms/browsers.md) para entender y
 verificar sus almacenes de confianza.
 
@@ -253,20 +254,31 @@ separan a sus clientes. Si no sabes si está disponible, usa primero la IPv4
 LAN. En ambos casos, el teléfono y el computador deben estar en la misma red y
 la red Wi-Fi no debe tener aislamiento entre clientes.
 
+Llamaremos **host de acceso** al valor exacto que escribirás en la URL: por
+ejemplo, `192.168.1.40` o `mi-pc.local`. Ese valor aparece en dos lugares y no
+en `.env.local`:
+
+| Dato | Dónde se configura |
+| --- | --- |
+| Host de acceso | Argumento del helper del certificado y host de la URL. |
+| Activación de TLS y puertos | `.env.local`. |
+| Rutas del backend | URLs relativas del frontend; no incluyen host. |
+
 ### 1. Obtén la dirección y prepara el certificado
 
 Sigue la guía de [Linux](docs/platforms/linux.md),
 [macOS](docs/platforms/macos.md) o
 [Windows](docs/platforms/windows.md) para:
 
-1. obtener la dirección LAN;
+1. elegir y verificar la dirección LAN o nombre mDNS que usarás;
 2. instalar `mkcert` y confiar su CA local;
 3. generar `certs/local.pem` y `certs/local-key.pem`; y
 4. revisar el firewall de la plataforma.
 
-El certificado debe incluir exactamente la dirección o nombre que abrirás
-desde el teléfono. El helper agrega ese valor a la extensión
-`subjectAltName` del certificado.
+El certificado debe incluir exactamente cada dirección o nombre que abrirás
+desde el teléfono. Los helpers aceptan uno o más valores y los agregan a la
+extensión `subjectAltName` del certificado, además de los nombres de loopback.
+Por ejemplo, puedes incluir simultáneamente `192.168.1.40` y `mi-pc.local`.
 
 ### 2. Configura Docker Compose
 
@@ -288,7 +300,12 @@ Las variables tienen estos efectos:
 - `GATEWAY_HTTPS_PORT=5173` conserva el puerto habitual para la entrada HTTPS;
   y
 - `GATEWAY_HTTP_PORT=5174` evita que los dos mapeos de Compose intenten usar el
-  mismo puerto. El gateway sirve solo HTTPS cuando `LOCAL_TLS=true`.
+  mismo puerto. Es una reserva técnica: nginx no escucha HTTP en ese puerto
+  cuando `LOCAL_TLS=true`; el gateway sirve sólo HTTPS.
+
+`.env.local` no es uno de los nombres que Compose carga automáticamente. Debes
+pasarlo explícitamente con `--env-file` en cada comando que cree o recree los
+servicios de este perfil.
 
 En la Web, un **origen** es la combinación de esquema, host y puerto. Por eso
 `http://192.168.1.40:5173` y `https://192.168.1.40:5173` son orígenes distintos.
@@ -302,6 +319,13 @@ Inicia los servicios con el mismo comando en Linux, macOS y PowerShell:
 
 ```console
 docker compose --env-file .env.local up --build
+```
+
+Si vuelves a generar `certs/local.pem` mientras el stack está activo, reinicia
+el gateway para que nginx cargue el certificado nuevo:
+
+```console
+docker compose --env-file .env.local restart gateway
 ```
 
 Verifica primero desde el computador:
@@ -321,13 +345,26 @@ https://localhost:5173/docs
 - [Instalar la CA local en Android](docs/platforms/android.md)
 - [Instalar la CA local en iOS o iPadOS](docs/platforms/ios.md)
 
-Desde el teléfono abre:
+Desde el teléfono abre el mismo host que incluiste en el certificado. Por
+ejemplo, para IPv4:
 
 ```text
 https://192.168.1.40:5173/
 https://192.168.1.40:5173/healthz
 https://192.168.1.40:5173/docs
 ```
+
+O bien, si verificaste e incluiste mDNS:
+
+```text
+https://mi-pc.local:5173/
+https://mi-pc.local:5173/healthz
+https://mi-pc.local:5173/docs
+```
+
+> No omitas `:5173`: forma parte de la dirección de este entorno local. Si
+> escribes solo `https://mi-pc.local/`, el navegador usa el puerto HTTPS
+> predeterminado `443`, donde este stack no publica el gateway.
 
 El primer path viene de Vite; los otros dos pasan por nginx hacia FastAPI. El
 frontend usa URLs relativas como `/api/v1/auth/login`, por lo que la IP o nombre
@@ -341,10 +378,12 @@ entre sitios. Estas propiedades forman parte del mecanismo de
 
 ### Diagnóstico común
 
-- Abre primero `/healthz` desde el computador usando la misma dirección LAN.
-- `curl -k https://192.168.1.40:5173/healthz` desactiva deliberadamente la
-  validación del certificado. Úsalo solo para separar un problema de red de uno
-  de confianza; no demuestra que HTTPS esté configurado correctamente.
+- Abre primero `/healthz` desde el computador usando el mismo host de acceso
+  que probarás en el teléfono.
+- `curl -k https://192.168.1.40:5173/healthz` —sustituyendo la IP por tu host
+  de acceso— desactiva deliberadamente la validación del certificado. Úsalo
+  solo para separar un problema de red de uno de confianza; no demuestra que
+  HTTPS esté configurado correctamente.
 - Si funciona en el computador pero no en el teléfono, revisa firewall,
   aislamiento Wi-Fi y que ambos dispositivos estén en la misma subred.
 - Si el navegador rechaza el certificado, confirma que este incluya la

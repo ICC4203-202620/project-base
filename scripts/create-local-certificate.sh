@@ -1,12 +1,10 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -ne 1 ]; then
-  echo "Uso: $0 <hostname-o-ip-lan>" >&2
+if [ "$#" -lt 1 ]; then
+  echo "Uso: $0 <hostname-o-ip-lan> [hostname-o-ip-lan ...]" >&2
   exit 1
 fi
-
-host_or_ip="$1"
 
 if ! command -v mkcert >/dev/null 2>&1; then
   echo "No se encontró mkcert. Instálalo y ejecuta 'mkcert -install' primero." >&2
@@ -21,6 +19,10 @@ mkdir -p "$certificate_dir"
 mkcert \
   -cert-file "$certificate_dir/local.pem" \
   -key-file "$certificate_dir/local-key.pem" \
-  "$host_or_ip" localhost 127.0.0.1 ::1
+  "$@" localhost 127.0.0.1 ::1
 
-echo "Certificado creado para https://$host_or_ip:5173 y https://localhost:5173"
+printf "Certificado creado para"
+for host_or_ip in "$@"; do
+  printf " https://%s:5173" "$host_or_ip"
+done
+printf " https://localhost:5173\n"

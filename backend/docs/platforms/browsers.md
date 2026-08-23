@@ -10,7 +10,7 @@ navegadores de escritorio. Para un teléfono o tablet, usa las guías de
 El comando `mkcert -install` crea una autoridad certificadora local e instala
 su certificado público en los almacenes de confianza compatibles. Después, el
 helper del proyecto emite `certs/local.pem` para `localhost`, `127.0.0.1`,
-`::1` y la IP LAN o nombre mDNS indicado.
+`::1` y las direcciones LAN o nombres mDNS indicados.
 
 El navegador confía en la conexión solo si se cumplen ambas condiciones:
 
@@ -26,7 +26,8 @@ CA es `rootCA.pem`, ubicado en el directorio que muestra `mkcert -CAROOT`.
 
 ## Instalación recomendada
 
-Cierra Chrome y Firefox. Desde una terminal ejecuta como tu usuario habitual:
+Cierra Chrome y Firefox. Desde una terminal del mismo sistema operativo y con
+el mismo usuario que abre los navegadores, ejecuta:
 
 ```console
 mkcert -install
@@ -40,9 +41,9 @@ Las guías de [Linux](linux.md), [macOS](macos.md) y
 
 ## Google Chrome
 
-Chrome de escritorio incorpora las CA personalizadas del almacén de
-certificados del sistema operativo. Por eso, normalmente `mkcert -install` es
-suficiente y no se importa el certificado directamente en una página web.
+Chrome de escritorio incorpora las CA personalizadas instaladas en el almacén
+de certificados del sistema operativo. Por eso, normalmente `mkcert -install`
+es suficiente y no se importa el certificado directamente en una página web.
 
 Para comprobar el almacén que Chrome está usando:
 
@@ -50,8 +51,7 @@ Para comprobar el almacén que Chrome está usando:
 2. en **Opciones avanzadas**, selecciona **Gestionar certificados**; y
 3. busca la CA local creada por `mkcert` entre las autoridades raíz confiables.
 
-La pantalla exacta depende del sistema operativo porque Chrome delega esta
-gestión al almacén del dispositivo. La
+La pantalla exacta depende del sistema operativo y de la versión de Chrome. La
 [documentación de seguridad de Chrome](https://support.google.com/chrome/answer/10468685?co=GENIE.Platform%3DDesktop&hl=es)
 describe este comportamiento.
 
@@ -62,12 +62,13 @@ según estén disponibles.
 
 ## Mozilla Firefox
 
-En Windows y macOS, las versiones actuales de Firefox pueden confiar
-automáticamente en las CA de terceros instaladas en el sistema. Comprueba en
-**Ajustes → Privacidad y seguridad → Certificados** que esté activa la opción
+En Windows y macOS, las versiones actuales de Firefox confían automáticamente
+en las CA de terceros instaladas en el sistema. En **Ajustes → Privacidad y
+seguridad**, busca la sección **Conexión y seguridad del software**, abre sus
+opciones avanzadas y comprueba en **Certificados** que esté activa la opción
 **Permitir que Firefox confíe automáticamente en certificados raíz de terceros
 que instales**. Mozilla documenta este mecanismo en
-[Configurar autoridades certificadoras en Firefox](https://support.mozilla.org/kb/setting-certificate-authorities-firefox).
+[Confiar automáticamente en certificados raíz de terceros](https://support.mozilla.org/kb/automatically-trust-third-party-certificates).
 
 En macOS y Linux, `mkcert` también puede instalar directamente la CA en el
 almacén NSS de Firefox. Para ello necesita `nss` o `certutil`; después de
@@ -88,8 +89,9 @@ puede requerir su propia configuración.
 ## Levantar y verificar el entorno HTTPS
 
 Copia `.env.local.example` como `.env.local`, genera el certificado y levanta
-Compose según la guía de tu sistema operativo. El perfil publica HTTPS en el
-puerto 5173:
+Compose según la guía de tu sistema operativo. Recuerda que Compose no carga
+`.env.local` automáticamente: usa `--env-file .env.local`. El perfil publica
+HTTPS en el puerto 5173:
 
 ```text
 https://localhost:5173/
@@ -126,4 +128,4 @@ Referencias:
 
 - [`mkcert`: CA local y almacenes compatibles](https://github.com/FiloSottile/mkcert#supported-root-stores)
 - [Chrome: gestionar certificados del dispositivo](https://support.google.com/chrome/answer/10468685?co=GENIE.Platform%3DDesktop&hl=es)
-- [Firefox: configurar autoridades certificadoras](https://support.mozilla.org/kb/setting-certificate-authorities-firefox)
+- [Firefox: confiar en certificados raíz de terceros](https://support.mozilla.org/kb/automatically-trust-third-party-certificates)

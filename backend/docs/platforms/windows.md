@@ -51,7 +51,12 @@ Windows puede solicitar confirmación para confiar la nueva CA.
 público en el almacén de confianza del usuario. Aún no genera el certificado
 del backend. La CA es solo para desarrollo local.
 
-## 3. Dirección IPv4 LAN
+## 3. Elige el host de acceso
+
+Antes de generar el certificado, elige la dirección que escribirás desde el
+teléfono. La IPv4 LAN del host Windows es el camino recomendado.
+
+### IPv4 LAN recomendada
 
 Desde PowerShell:
 
@@ -66,12 +71,32 @@ red que el teléfono. Las redes privadas suelen usar los bloques `10.0.0.0/8`,
 WSL, Docker o VPN, ni `127.0.0.1`, que es la interfaz de retorno del propio
 computador: el teléfono normalmente no puede alcanzarlas.
 
+### mDNS opcional
+
+mDNS permite que equipos del mismo enlace local resuelvan nombres `.local` por
+multicast, sin un DNS central. Su disponibilidad varía según la versión de
+Windows, el teléfono y la red. Esta guía no supone que exista un nombre mDNS:
+usa la IPv4 salvo que hayas comprobado que el mismo nombre `.local` resuelve
+tanto desde Windows como desde el teléfono.
+
+Si ya tienes un nombre como `mi-pc.local` funcionando, puedes incluirlo junto
+con la IPv4 en el certificado. El
+[estándar de mDNS](https://www.rfc-editor.org/rfc/rfc6762) reserva `.local` y
+UDP 5353 para este mecanismo.
+
 ## 4. Certificado local
 
-Desde la raíz del repositorio, reemplaza la dirección del ejemplo:
+Desde la raíz del repositorio, pasa al helper todos los hosts que realmente
+usarás. Para trabajar sólo con la IPv4:
 
 ```powershell
 .\scripts\create-local-certificate.ps1 192.168.1.40
+```
+
+Si ya verificaste mDNS, puedes emitir un solo certificado para ambos:
+
+```powershell
+.\scripts\create-local-certificate.ps1 192.168.1.40 mi-pc.local
 ```
 
 Si la política local impide ejecutar scripts, no cambies la política global;
@@ -85,21 +110,34 @@ Esta excepción dura solo ese proceso. La documentación de PowerShell explica
 los [alcances de las políticas de ejecución](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_execution_policies).
 
 El helper pide a la CA local que firme `certs\local.pem` y guarda su clave
-privada en `certs\local-key.pem`. El certificado incluye la IP indicada y,
-para seguir permitiendo pruebas en el computador, también `localhost`,
-`127.0.0.1` y `::1`.
+privada en `certs\local-key.pem`. El certificado incluye todos los valores
+indicados y, para seguir permitiendo pruebas en el computador, también
+`localhost`, `127.0.0.1` y `::1`.
 
-## 5. Red y firewall
+Los hosts pertenecen al certificado y a las URLs de acceso; **no se agregan a
+`.env.local`**. Si regeneras el certificado mientras Compose está activo,
+reinicia nginx para que vuelva a cargarlo:
+
+```powershell
+docker compose --env-file .env.local restart gateway
+```
+
+## 5. Compose, red y firewall
+
+Crea el perfil TLS. Compose no lee `.env.local` automáticamente, por lo que
+debes indicar `--env-file` cada vez que levantes esta configuración:
+
+```powershell
+Copy-Item .env.local.example .env.local
+docker compose --env-file .env.local up --build
+```
 
 El perfil `.env.local` publica el gateway HTTPS en el puerto 5173 de Windows.
 Si el teléfono no puede acceder, abre **Seguridad de Windows → Firewall y
 protección de red → Configuración avanzada → Reglas de entrada** y permite TCP
 5173 únicamente en redes privadas. No desactives el firewall completo.
 
-Continúa con la configuración común de
-[HTTPS local y desde el teléfono](../../README.md#https-local-y-acceso-desde-un-teléfono).
-
-## 6. WSL y mDNS opcionales
+## 6. WSL y el almacén de confianza
 
 Si trabajas dentro de WSL, habilita la integración de tu distribución en
 Docker Desktop. Los contenedores siguen publicando el puerto en el host
@@ -109,22 +147,23 @@ dirección interna de WSL.
 La guía oficial de Docker explica la
 [integración con WSL](https://docs.docker.com/desktop/features/wsl/).
 
-mDNS permite que equipos del mismo enlace local resuelvan nombres `.local` por
-multicast, sin un DNS central. No es un requisito y su disponibilidad puede
-variar según la versión de Windows y la configuración de la red. Consulta el
-[estándar de mDNS](https://www.rfc-editor.org/rfc/rfc6762) y usa la dirección
-IPv4 como camino inicial y alternativa estable.
+La integración de Docker con WSL no comparte automáticamente autoridades
+certificadoras. Si Chrome o Firefox se ejecutan en Windows, instala y usa
+`mkcert` desde PowerShell, como indica esta guía. Ejecutar `mkcert -install`
+dentro de WSL instalaría otra CA en el almacén Linux; esa CA no sería confiable
+automáticamente para los navegadores de Windows.
 
 ## 7. Verificación
 
 PowerShell define `curl` como alias en algunas versiones; usa explícitamente
 `curl.exe`:
 
-Después de iniciar Compose con la configuración HTTPS del README, prueba primero
-con validación completa:
+Prueba con validación TLS completa usando un host incluido en el certificado:
 
 ```powershell
 curl.exe https://192.168.1.40:5173/healthz
+# Alternativa, sólo si incluiste y validaste mDNS:
+curl.exe https://mi-pc.local:5173/healthz
 ```
 
 Debes obtener `{"status":"ok"}`. Si Windows responde pero el teléfono no,
@@ -132,3 +171,6 @@ revisa la regla de firewall, el perfil privado de la red Wi-Fi y la confianza
 de `rootCA.pem` en el dispositivo. Si `curl.exe` rechaza el certificado,
 `curl.exe -k` puede servir como diagnóstico de conectividad, pero `-k`
 deshabilita la verificación TLS y no debe considerarse una solución.
+
+Continúa con la explicación común de
+[HTTPS local y acceso desde un teléfono](../../README.md#https-local-y-acceso-desde-un-teléfono).
