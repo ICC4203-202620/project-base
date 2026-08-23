@@ -15,6 +15,7 @@ test("the API client uses relative URLs and includes browser credentials", async
   const responses = [
     jsonResponse({ status: "ok" }),
     jsonResponse({ user: { name: "Demo" }, expires_at: "2030-01-01T00:00:00Z" }),
+    jsonResponse([]),
     new Response(null, { status: 204 }),
     new Response(null, { status: 204 }),
   ];
@@ -25,6 +26,7 @@ test("the API client uses relative URLs and includes browser credentials", async
 
   await api.health();
   await api.session();
+  await api.restaurants();
   await api.login({ email: "demo@example.com", password: "secret" });
   await api.logout();
 
@@ -33,17 +35,33 @@ test("the API client uses relative URLs and includes browser credentials", async
     [
       "/healthz",
       "/api/v1/auth/session",
+      "/api/v1/restaurants?limit=20&offset=0",
       "/api/v1/auth/login",
       "/api/v1/auth/logout",
     ],
   );
   assert.ok(calls.every(({ options }) => options.credentials === "include"));
-  assert.equal(calls[2].options.method, "POST");
-  assert.deepEqual(JSON.parse(calls[2].options.body), {
+  assert.equal(calls[3].options.method, "POST");
+  assert.deepEqual(JSON.parse(calls[3].options.body), {
     email: "demo@example.com",
     password: "secret",
   });
-  assert.equal(calls[3].options.method, "POST");
+  assert.equal(calls[4].options.method, "POST");
+});
+
+test("the restaurants request accepts pagination and cancellation", async () => {
+  let received;
+  const controller = new AbortController();
+  const api = createApiClient(async (path, options) => {
+    received = { path, options };
+    return jsonResponse([]);
+  });
+
+  await api.restaurants({ limit: 5, offset: 10, signal: controller.signal });
+
+  assert.equal(received.path, "/api/v1/restaurants?limit=5&offset=10");
+  assert.equal(received.options.signal, controller.signal);
+  assert.equal(received.options.credentials, "include");
 });
 
 test("HTTP errors retain status and use the backend detail", async () => {

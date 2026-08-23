@@ -132,8 +132,67 @@ form button {
   gap: 1rem;
 }
 
-.auth-panel > p {
+.auth-panel > p,
+.restaurants-panel > p {
   color: #465249;
+}
+
+.restaurants-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.restaurant-list,
+.cuisine-list {
+  padding: 0;
+  list-style: none;
+}
+
+.restaurant-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 1rem;
+  margin: 0;
+}
+
+.restaurant-item {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #d7ddd2;
+  border-radius: 0.8rem;
+  background: #f8faf6;
+}
+
+.restaurant-item h3 {
+  overflow-wrap: anywhere;
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+.restaurant-item address {
+  overflow-wrap: anywhere;
+  margin-top: 0.4rem;
+  color: #536057;
+  font-style: normal;
+  line-height: 1.45;
+}
+
+.cuisine-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.9rem 0 0;
+}
+
+.cuisine-list li {
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  color: #285b3b;
+  background: #dcebdd;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .session-summary {

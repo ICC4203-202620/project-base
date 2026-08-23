@@ -165,3 +165,13 @@ test("network and infrastructure failures use unavailable state", async () => {
   assert.equal(serviceController.state.status, AUTH_STATES.UNAVAILABLE);
   assert.match(serviceController.state.message, /HTTP 503/);
 });
+
+test("a protected resource can invalidate the current session", async () => {
+  const controller = createAuthController({ api: {} });
+
+  controller.invalidateSession();
+
+  assert.equal(controller.state.status, AUTH_STATES.ANONYMOUS);
+  assert.equal(controller.state.kind, "error");
+  assert.match(controller.state.message, /caducó|revocada/);
+});

@@ -16,6 +16,7 @@ const MESSAGES = Object.freeze({
   loginAccepted: "Credenciales aceptadas. Verificando la sesión creada…",
   logout: "Cerrando la sesión en el backend…",
   loggedOut: "La sesión se cerró correctamente.",
+  sessionLost: "La sesión caducó o fue revocada. Inicia sesión nuevamente.",
 });
 
 function unavailableMessage(error) {
@@ -98,6 +99,10 @@ export function createAuthController({ api, onStateChange = () => {} }) {
     }
   }
 
+  function invalidateSession(message = MESSAGES.sessionLost) {
+    return anonymous(message, "error");
+  }
+
   transition(AUTH_STATES.LOADING, { message: MESSAGES.checking, kind: "neutral" });
 
   return Object.freeze({
@@ -107,5 +112,6 @@ export function createAuthController({ api, onStateChange = () => {} }) {
     restoreSession,
     login,
     logout,
+    invalidateSession,
   });
 }

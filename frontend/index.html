@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Punto de partida del frontend Foodie" />
-    <title>Foodie · Sesión y conectividad</title>
+    <title>Foodie · Sesión y restaurantes</title>
   </head>
   <body>
     <main class="shell">
@@ -13,7 +13,8 @@
         <h1>Frontend conectado</h1>
         <p>
           Este esqueleto usa Vite con HTML y JavaScript nativos. Comprueba la
-          conexión y el ciclo de sesión antes de comenzar a construir la PWA.
+          conexión, el ciclo de sesión y una colección protegida antes de
+          comenzar a construir la PWA.
         </p>
       </header>
 
@@ -122,6 +123,52 @@
           aria-atomic="true"
         >
           Comprobando si existe una sesión vigente…
+        </p>
+      </section>
+
+      <section
+        id="restaurants-card"
+        class="card"
+        aria-labelledby="restaurants-title"
+        aria-busy="false"
+        hidden
+      >
+        <div>
+          <p class="step">Paso 3</p>
+          <h2 id="restaurants-title">Restaurantes</h2>
+          <p>
+            Esta colección protegida sólo se solicita después de que el backend
+            confirma una sesión vigente.
+          </p>
+        </div>
+
+        <div id="restaurants-loading" class="restaurants-panel" hidden>
+          <p>Espera mientras se consulta la primera página.</p>
+        </div>
+
+        <div id="restaurants-ready" class="restaurants-panel" hidden>
+          <ul id="restaurants-list" class="restaurant-list"></ul>
+        </div>
+
+        <div id="restaurants-empty" class="restaurants-panel" hidden>
+          <p>No hay restaurantes disponibles todavía.</p>
+        </div>
+
+        <div id="restaurants-error" class="restaurants-panel" hidden>
+          <p>
+            La sesión sigue vigente, pero no fue posible obtener la colección.
+          </p>
+          <button id="retry-restaurants" type="button">Volver a intentar</button>
+        </div>
+
+        <p
+          id="restaurants-status"
+          class="status"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          El índice se mostrará después de verificar la sesión.
         </p>
       </section>
 

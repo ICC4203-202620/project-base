@@ -6,11 +6,14 @@ de desarrollo, recarga en caliente y el build de producción, pero no impone un
 framework. La [guía oficial de Vite](https://vite.dev/guide/) describe estas dos
 responsabilidades.
 
-El esqueleto demuestra la conectividad y el ciclo completo de autenticación:
+El esqueleto demuestra la conectividad, el ciclo completo de autenticación y el
+consumo de una colección protegida:
 
 - `GET /healthz`, para comprobar la conectividad;
 - `GET /api/v1/auth/session`, para reconstruir la interfaz al cargar la página;
-- `POST /api/v1/auth/login`, para iniciar una sesión; y
+- `POST /api/v1/auth/login`, para iniciar una sesión;
+- `GET /api/v1/restaurants?limit=20&offset=0`, para mostrar la primera página de
+  restaurantes únicamente después de confirmar la sesión; y
 - `POST /api/v1/auth/logout`, para revocarla y eliminar la cookie.
 
 No incluye `manifest`, `service worker`, soporte offline ni instalación como
@@ -63,6 +66,7 @@ Los módulos mantienen responsabilidades separadas sin introducir un framework:
 ```text
 src/api.js   -> Fetch, URLs, credentials y formato común de errores
 src/auth.js  -> transiciones loading/anonymous/authenticated/unavailable
+src/restaurants.js -> carga, cancelación y estados de la colección protegida
 src/main.js  -> eventos del DOM, renderizado y formato local de la caducación
 ```
 
@@ -70,6 +74,34 @@ src/main.js  -> eventos del DOM, renderizado y formato local de la caducación
 demás. Así se evita mostrar por un instante el formulario antes de conocer la
 sesión. El estado textual usa `role="status"` y `aria-live="polite"` para que
 las tecnologías de asistencia anuncien los cambios sin interrumpir al usuario.
+
+## Índice protegido de restaurantes
+
+El frontend solicita restaurantes sólo cuando `/auth/session` confirma una
+sesión. La autorización efectiva sigue en FastAPI: ocultar una sección de HTML
+no protege un recurso. Esta separación recuerda que la interfaz controla lo que
+se muestra, mientras el backend decide quién puede acceder a los datos.
+
+La colección representa estados independientes y observables:
+
+| Estado | Resultado | Interfaz |
+| --- | --- | --- |
+| `idle` | No se ha confirmado una sesión. | La sección permanece oculta y no se hace Fetch. |
+| `loading` | La solicitud está en curso. | Indicador accesible con `aria-busy`. |
+| `ready` | El backend devolvió uno o más elementos. | Lista semántica con nombre, dirección y estilos de comida. |
+| `empty` | El backend devolvió `200` y una lista vacía. | Mensaje explícito, distinto de un error. |
+| `error` | Falló la red o el servicio respondió un error distinto de `401`. | Mensaje recuperable y botón de reintento. |
+
+Un `401` recibido al cargar restaurantes significa que la sesión caducó o fue
+revocada entre ambas solicitudes. El controlador limpia la colección y devuelve
+la interfaz al formulario de login. Al cerrar sesión también aborta la solicitud
+en curso y descarta cualquier respuesta tardía, para que los datos protegidos no
+reaparezcan después del logout.
+
+Los valores del backend se asignan con `textContent` y se estructuran con
+`document.createElement`; nunca se interpolan mediante `innerHTML`. MDN explica
+por qué [`textContent`](https://developer.mozilla.org/docs/Web/API/Node/textContent)
+es apropiado para tratar la respuesta como texto y no como markup ejecutable.
 
 La misma convención sirve para las siguientes etapas:
 
@@ -144,7 +176,8 @@ podrá publicarse en un origen estático para CloudFront.
 
 Las pruebas usan el runner incorporado en Node.js, por lo que no añaden un
 framework de testing. Comprueban URLs relativas, `credentials: "include"`,
-errores HTTP frente a errores de red y todas las transiciones de sesión:
+errores HTTP frente a errores de red, las transiciones de sesión y los estados
+de la colección protegida:
 
 ```console
 cd frontend
@@ -159,9 +192,12 @@ Para una comprobación manual con el stack iniciado:
 2. usa una contraseña incorrecta y comprueba que el mensaje habla de
    credenciales, no de conectividad;
 3. inicia sesión con `demo@example.com` y `demo-password`;
-4. recarga y confirma que la identidad continúa visible;
-5. cierra sesión y recarga para comprobar que vuelve el formulario; y
-6. detén temporalmente el backend y usa «Volver a intentar» para observar el
+4. confirma que aparecen los restaurantes de demostración con su dirección y
+   estilos de comida;
+5. recarga y confirma que la identidad y el índice continúan visibles;
+6. cierra sesión y comprueba que el índice desaparece inmediatamente;
+7. recarga para comprobar que vuelve el formulario; y
+8. detén temporalmente el backend y usa «Volver a intentar» para observar el
    estado de indisponibilidad.
 
 ## Convenciones para el desarrollo
@@ -176,6 +212,8 @@ Para una comprobación manual con el stack iniciado:
 - Trata `401 Unauthorized` como ausencia de sesión, no como una falla de red;
   la semántica del código está definida en
   [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110#name-401-unauthorized).
+- Si un recurso protegido responde `401`, limpia sus datos y vuelve al estado
+  anónimo global; la sesión pudo caducar después de la comprobación inicial.
 - No agregues secretos al frontend. Todo valor incluido en el build queda
   disponible para quien descargue la aplicación.
 - Conserva `/api` para el backend al definir rutas de la futura aplicación
