@@ -362,6 +362,10 @@ https://mi-pc.local:5173/healthz
 https://mi-pc.local:5173/docs
 ```
 
+> No omitas `:5173`: forma parte de la dirección de este entorno local. Si
+> escribes solo `https://mi-pc.local/`, el navegador usa el puerto HTTPS
+> predeterminado `443`, donde este stack no publica el gateway.
+
 El primer path viene de Vite; los otros dos pasan por nginx hacia FastAPI. El
 frontend usa URLs relativas como `/api/v1/auth/login`, por lo que la IP o nombre
 mDNS no queda escrito en su código.
