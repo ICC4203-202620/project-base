@@ -76,6 +76,8 @@ export function createApiClient(fetchImplementation = globalThis.fetch) {
   return Object.freeze({
     health: () => request("/healthz"),
     session: () => request("/api/v1/auth/session"),
+    restaurants: ({ limit = 20, offset = 0, signal } = {}) =>
+      request(`/api/v1/restaurants?limit=${limit}&offset=${offset}`, { signal }),
     login: (credentials) =>
       request("/api/v1/auth/login", {
         method: "POST",

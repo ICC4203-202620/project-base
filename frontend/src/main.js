@@ -2,6 +2,10 @@ import "./style.css";
 
 import { createApiClient } from "./api.js";
 import { AUTH_STATES, createAuthController } from "./auth.js";
+import {
+  RESTAURANT_STATES,
+  createRestaurantsController,
+} from "./restaurants.js";
 
 const apiStatus = document.querySelector("#api-status");
 const checkApiButton = document.querySelector("#check-api");
@@ -22,6 +26,16 @@ const sessionName = document.querySelector("#session-name");
 const sessionHandle = document.querySelector("#session-handle");
 const sessionEmail = document.querySelector("#session-email");
 const sessionExpiration = document.querySelector("#session-expiration");
+const restaurantsCard = document.querySelector("#restaurants-card");
+const restaurantsStatus = document.querySelector("#restaurants-status");
+const restaurantsList = document.querySelector("#restaurants-list");
+const retryRestaurantsButton = document.querySelector("#retry-restaurants");
+const restaurantPanels = {
+  [RESTAURANT_STATES.LOADING]: document.querySelector("#restaurants-loading"),
+  [RESTAURANT_STATES.READY]: document.querySelector("#restaurants-ready"),
+  [RESTAURANT_STATES.EMPTY]: document.querySelector("#restaurants-empty"),
+  [RESTAURANT_STATES.ERROR]: document.querySelector("#restaurants-error"),
+};
 const currentOrigin = document.querySelector("#current-origin");
 
 const api = createApiClient();
@@ -44,6 +58,49 @@ function formatExpiration(value) {
   }).format(date)} (hora local)`;
 }
 
+function createRestaurantItem(restaurant) {
+  const item = document.createElement("li");
+  item.className = "restaurant-item";
+
+  const article = document.createElement("article");
+  const name = document.createElement("h3");
+  name.textContent = restaurant.name;
+  const address = document.createElement("address");
+  address.textContent = restaurant.address;
+  const styles = document.createElement("ul");
+  styles.className = "cuisine-list";
+  styles.setAttribute("aria-label", "Estilos de comida");
+
+  for (const cuisine of restaurant.cuisine_styles) {
+    const style = document.createElement("li");
+    style.textContent = cuisine.name;
+    styles.append(style);
+  }
+
+  article.append(name, address, styles);
+  item.append(article);
+  return item;
+}
+
+function renderRestaurants(state) {
+  restaurantsCard.dataset.state = state.status;
+  restaurantsCard.setAttribute(
+    "aria-busy",
+    String(state.status === RESTAURANT_STATES.LOADING),
+  );
+  for (const [name, panel] of Object.entries(restaurantPanels)) {
+    panel.hidden = name !== state.status;
+  }
+
+  showStatus(restaurantsStatus, state.message, state.kind);
+  retryRestaurantsButton.disabled = state.status === RESTAURANT_STATES.LOADING;
+  restaurantsList.replaceChildren();
+
+  if (state.status === RESTAURANT_STATES.READY) {
+    restaurantsList.append(...state.items.map(createRestaurantItem));
+  }
+}
+
 function renderAuth(state) {
   authCard.dataset.state = state.status;
   authCard.setAttribute("aria-busy", String(state.status === AUTH_STATES.LOADING));
@@ -62,10 +119,21 @@ function renderAuth(state) {
     sessionEmail.textContent = state.session.user.email;
     sessionExpiration.dateTime = state.session.expires_at;
     sessionExpiration.textContent = formatExpiration(state.session.expires_at);
+    restaurantsCard.hidden = false;
+    restaurants.load();
+  } else {
+    restaurantsCard.hidden = true;
+    restaurants.reset();
   }
 }
 
-const auth = createAuthController({ api, onStateChange: renderAuth });
+let auth;
+const restaurants = createRestaurantsController({
+  api,
+  onStateChange: renderRestaurants,
+  onUnauthorized: () => auth.invalidateSession(),
+});
+auth = createAuthController({ api, onStateChange: renderAuth });
 
 async function checkApi() {
   checkApiButton.disabled = true;
@@ -94,6 +162,7 @@ loginForm.addEventListener("submit", async (event) => {
 
 logoutButton.addEventListener("click", () => auth.logout());
 retrySessionButton.addEventListener("click", () => auth.restoreSession());
+retryRestaurantsButton.addEventListener("click", () => restaurants.load());
 checkApiButton.addEventListener("click", checkApi);
 
 checkApi();
