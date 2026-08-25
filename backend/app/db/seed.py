@@ -1,3 +1,4 @@
+from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import insert, or_, select
@@ -5,14 +6,26 @@ from sqlalchemy.engine import Connection
 
 from app.core.config import settings
 from app.core.security import hash_password
-from app.db.fixtures import CUISINE_STYLES, DEMO_USERS, RESTAURANTS
+from app.db.fixtures import (
+    CUISINE_STYLES,
+    DEMO_USERS,
+    RESTAURANT_FOLLOWS,
+    RESTAURANTS,
+    REVIEW_FIXTURES,
+    USER_FOLLOWS,
+)
 from app.db.schema import (
     cuisine_styles,
+    photos,
     restaurant_cuisine_styles,
+    restaurant_follows,
     restaurants,
+    reviews,
+    user_follows,
     users,
 )
 from app.db.session import engine
+from app.media.storage import MediaStorage, get_media_storage
 from app.services.restaurants import normalize_restaurant_text, restaurant_identity_key
 
 
@@ -119,16 +132,93 @@ def _seed_restaurants(connection: Connection, style_ids: dict[str, UUID]) -> boo
     return changed
 
 
-def seed() -> bool:
+FIXTURE_ASSET_DIRECTORY = Path(__file__).parent / "assets" / "reviews"
+
+
+def _seed_feed_fixtures(
+    connection: Connection,
+    storage: MediaStorage,
+    stored_keys: list[str],
+) -> bool:
+    changed = False
+    existing_user_follows = set(
+        connection.execute(select(user_follows.c.follower_id, user_follows.c.followed_id))
+    )
+    for follow in USER_FOLLOWS:
+        if follow not in existing_user_follows:
+            connection.execute(
+                insert(user_follows).values(follower_id=follow[0], followed_id=follow[1])
+            )
+            changed = True
+    existing_restaurant_follows = set(
+        connection.execute(select(restaurant_follows.c.user_id, restaurant_follows.c.restaurant_id))
+    )
+    for follow in RESTAURANT_FOLLOWS:
+        if follow not in existing_restaurant_follows:
+            connection.execute(
+                insert(restaurant_follows).values(user_id=follow[0], restaurant_id=follow[1])
+            )
+            changed = True
+    existing_review_ids = set(connection.scalars(select(reviews.c.id)))
+    existing_photo_ids = set(connection.scalars(select(photos.c.id)))
+    for fixture in REVIEW_FIXTURES:
+        if fixture.id in existing_review_ids or fixture.photo_id in existing_photo_ids:
+            continue
+        asset_path = FIXTURE_ASSET_DIRECTORY / fixture.asset_name
+        with asset_path.open("rb") as stream:
+            storage_key = storage.store(
+                media_id=fixture.photo_id,
+                stream=stream,
+                content_type=fixture.content_type,
+                extension=asset_path.suffix.removeprefix("."),
+            )
+        stored_keys.append(storage_key)
+        connection.execute(
+            insert(photos).values(
+                id=fixture.photo_id,
+                author_id=fixture.author_id,
+                restaurant_id=fixture.restaurant_id,
+                storage_key=storage_key,
+                content_type=fixture.content_type,
+                size_bytes=asset_path.stat().st_size,
+                created_at=fixture.created_at,
+            )
+        )
+        connection.execute(
+            insert(reviews).values(
+                id=fixture.id,
+                photo_id=fixture.photo_id,
+                author_id=fixture.author_id,
+                restaurant_id=fixture.restaurant_id,
+                dish_name=fixture.dish_name,
+                text=fixture.text,
+                visibility=fixture.visibility,
+                created_at=fixture.created_at,
+                updated_at=fixture.created_at,
+            )
+        )
+        changed = True
+    return changed
+
+
+def seed(storage: MediaStorage | None = None) -> bool:
     """Insert missing local fixtures without updating existing rows."""
     if not settings.seed_demo_data:
         return False
 
-    with engine.begin() as connection:
-        users_changed = _seed_users(connection)
-        style_ids, styles_changed = _seed_cuisine_styles(connection)
-        restaurants_changed = _seed_restaurants(connection, style_ids)
-    return users_changed or styles_changed or restaurants_changed
+    storage = storage or get_media_storage()
+    stored_keys: list[str] = []
+    try:
+        with engine.begin() as connection:
+            users_changed = _seed_users(connection)
+            style_ids, styles_changed = _seed_cuisine_styles(connection)
+            restaurants_changed = _seed_restaurants(connection, style_ids)
+            feed_changed = _seed_feed_fixtures(connection, storage, stored_keys)
+    except Exception:
+        for storage_key in stored_keys:
+            storage.delete(storage_key)
+        raise
+    return users_changed or styles_changed or restaurants_changed or feed_changed
 
 
 if __name__ == "__main__":

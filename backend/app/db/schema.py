@@ -44,6 +44,22 @@ auth_sessions = Table(
 Index("ix_auth_sessions_user_id", auth_sessions.c.user_id)
 Index("ix_auth_sessions_expires_at", auth_sessions.c.expires_at)
 
+user_follows = Table(
+    "user_follows",
+    metadata,
+    Column("follower_id", Uuid(as_uuid=True), primary_key=True),
+    Column("followed_id", Uuid(as_uuid=True), primary_key=True),
+)
+Index("ix_user_follows_followed_id", user_follows.c.followed_id)
+
+restaurant_follows = Table(
+    "restaurant_follows",
+    metadata,
+    Column("user_id", Uuid(as_uuid=True), primary_key=True),
+    Column("restaurant_id", Uuid(as_uuid=True), primary_key=True),
+)
+Index("ix_restaurant_follows_restaurant_id", restaurant_follows.c.restaurant_id)
+
 cuisine_styles = Table(
     "cuisine_styles",
     metadata,

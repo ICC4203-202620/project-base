@@ -251,6 +251,13 @@ ni reemplaza asociaciones: reiniciar Compose conserva cambios de los
 estudiantes. `Settings` rechaza esta opción en producción y Lambda no ejecuta
 el entrypoint local, por lo que las fixtures no forman parte del bootstrap AWS.
 
+Las fixtures de feed añaden seguimientos, reseñas y fotografías con UUID y
+fechas estables. Los WebP viven en `app/db/assets/reviews/`, pero el seed los
+abre como streams y llama a `MediaStorage.store`; `photos.storage_key` siempre
+recibe la clave opaca que entregue el proveedor. Si la transacción SQL falla,
+el seed elimina los objetos que alcanzó a crear. Reejecutarlo no sobrescribe
+filas ni vuelve a cargar las fotografías ya asociadas a una reseña fixture.
+
 ## Reseñas y almacenamiento de fotografías
 
 La creación separa tres representaciones que no deben confundirse:
@@ -265,6 +272,20 @@ siempre de su UUID como `/api/v1/photos/{id}/content`. Esa ruta vuelve a
 autorizar la solicitud y luego responde con `FileResponse` en local o con una
 redirección 307 de corta duración en S3. Por eso las respuestas del futuro feed
 pueden ser estables aunque cambie el proveedor.
+
+### Feed de reseñas
+
+`app/services/feed.py` contiene consultas sin dependencia de FastAPI. Una sola
+consulta une reseñas, autor, restaurante y foto, y filtra la actividad pública
+por seguimiento de autor o restaurante. La condición es una unión lógica, no
+dos listas concatenadas, por lo que una coincidencia doble no se duplica.
+Antes de limitar, ordena por `(created_at, id)` descendente; el cursor opaco
+codifica esa misma pareja y evita los problemas de offset si se agregan nuevas
+reseñas entre páginas.
+
+El detalle usa la misma representación, permite cualquier reseña pública y
+permite una privada sólo a su autor. La ausencia y la falta de permiso se
+traducen ambas a `404`; los errores SQL se traducen a `503` en el router.
 
 `app/media/storage.py` declara el protocolo `MediaStorage`: `store`, `resolve`
 y `delete`. Los casos de uso y routers reciben ese contrato mediante una

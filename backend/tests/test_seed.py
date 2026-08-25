@@ -1,17 +1,52 @@
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import create_engine, func, select, update
 from sqlalchemy.pool import StaticPool
 
 from app.db import seed as seed_module
-from app.db.fixtures import CUISINE_STYLES, DEMO_USERS, RESTAURANTS
+from app.db.fixtures import (
+    CUISINE_STYLES,
+    DEMO_USERS,
+    RESTAURANT_FOLLOWS,
+    RESTAURANTS,
+    REVIEW_FIXTURES,
+    USER_FOLLOWS,
+)
 from app.db.schema import (
     cuisine_styles,
     metadata,
+    photos,
     restaurant_cuisine_styles,
+    restaurant_follows,
     restaurants,
+    reviews,
+    user_follows,
     users,
 )
+
+
+class FixtureStorage:
+    def __init__(self):
+        self.stored: list[str] = []
+        self.deleted: list[str] = []
+
+    def store(self, *, media_id, stream, content_type, extension):
+        assert content_type == "image/webp"
+        assert stream.read(4) == b"RIFF"
+        key = f"test/photos/{media_id}.{extension}"
+        self.stored.append(key)
+        return key
+
+    def delete(self, storage_key):
+        self.deleted.append(storage_key)
+
+
+@pytest.fixture(autouse=True)
+def fixture_storage(monkeypatch):
+    storage = FixtureStorage()
+    monkeypatch.setattr(seed_module, "get_media_storage", lambda: storage)
+    return storage
 
 
 def memory_engine():
@@ -34,14 +69,16 @@ def test_seed_is_disabled_by_default(monkeypatch):
         assert connection.scalar(select(func.count()).select_from(users)) == 0
 
 
-def test_seed_creates_all_demo_data_once(monkeypatch):
+def test_seed_creates_all_demo_data_once(monkeypatch, fixture_storage):
     engine = memory_engine()
     monkeypatch.setattr(seed_module, "engine", engine)
     monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
     monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
 
     assert seed_module.seed() is True
+    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES)
     assert seed_module.seed() is False
+    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES)
 
     with engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(users)) == len(DEMO_USERS)
@@ -49,6 +86,14 @@ def test_seed_creates_all_demo_data_once(monkeypatch):
             CUISINE_STYLES
         )
         assert connection.scalar(select(func.count()).select_from(restaurants)) == len(RESTAURANTS)
+        assert connection.scalar(select(func.count()).select_from(photos)) == len(REVIEW_FIXTURES)
+        assert connection.scalar(select(func.count()).select_from(reviews)) == len(REVIEW_FIXTURES)
+        assert connection.scalar(select(func.count()).select_from(user_follows)) == len(
+            USER_FOLLOWS
+        )
+        assert connection.scalar(select(func.count()).select_from(restaurant_follows)) == len(
+            RESTAURANT_FOLLOWS
+        )
         assert connection.scalar(
             select(func.count()).select_from(restaurant_cuisine_styles)
         ) == sum(len(fixture.cuisine_styles) for fixture in RESTAURANTS)
@@ -110,7 +155,7 @@ def test_seed_skips_users_that_collide_by_id_or_email(monkeypatch):
         lambda password: hashed_passwords.append(password) or "test-password-hash",
     )
 
-    first, second = DEMO_USERS
+    first, second = DEMO_USERS[:2]
     with engine.begin() as connection:
         connection.execute(
             users.insert().values(
@@ -134,7 +179,7 @@ def test_seed_skips_users_that_collide_by_id_or_email(monkeypatch):
         )
 
     assert seed_module.seed() is True
-    assert hashed_passwords == []
+    assert hashed_passwords == [DEMO_USERS[2].password]
     with engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(users)) == len(DEMO_USERS)
         assert (

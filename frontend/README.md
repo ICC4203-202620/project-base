@@ -19,6 +19,21 @@ consumo de una colección protegida:
 No incluye `manifest`, `service worker`, soporte offline ni instalación como
 PWA. Esos elementos forman parte del trabajo de los grupos en la entrega 2.
 
+## Contrato de feed para la Entrega 2
+
+Después de confirmar la sesión, la PWA obtiene `GET /api/v1/feed`. La respuesta
+es `{ items, next_cursor }`: cada item tiene `type: "review"`, `occurred_at` y
+una `review` con autor, restaurante, plato, texto, timestamps y
+`photo.content_url`. Guarda el cursor sólo para pedir la siguiente página; es
+opaco. La URL de foto es relativa y requiere la misma sesión, por lo que debe
+mantenerse como `/api/...` al persistir la copia offline.
+
+La vista de una notificación o de un item del feed puede consultar
+`GET /api/v1/reviews/{id}`. Trata un `404` como reseña no disponible y un `401`
+como sesión perdida. Para la demostración local, `demo@example.com` muestra
+actividad, mientras `empty@example.com` muestra un feed vacío; ambas cuentas
+usan `demo-password`.
+
 ## Arquitectura local: un solo origen
 
 El navegador entra siempre por el gateway nginx. nginx decide el servicio de

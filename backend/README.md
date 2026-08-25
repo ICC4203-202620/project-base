@@ -175,6 +175,35 @@ La API devuelve una redirección temporal a una
 [URL prefirmada](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)
 después de autorizar la ruta estable.
 
+### Feed y detalle de reseñas
+
+`GET /api/v1/feed` devuelve la actividad pública reciente relacionada con los
+usuarios o restaurantes que sigue la sesión. La respuesta usa un envelope
+extensible y paginación por cursor:
+
+```json
+{
+  "items": [{"type":"review","occurred_at":"...","review": {"...":"..."}}],
+  "next_cursor": "cursor-opaco-o-null"
+}
+```
+
+`limit` tiene valor predeterminado 20 y máximo 50. Cuando exista
+`next_cursor`, inclúyelo como `cursor` en la siguiente llamada; no lo modifiques
+ni intentes interpretarlo. El orden es descendente por fecha e identificador,
+y una reseña que coincide por ambos tipos de seguimiento aparece una sola vez.
+
+`GET /api/v1/reviews/{review_id}` entrega la misma reseña estructurada. Las
+reseñas públicas están disponibles para sesiones autenticadas; una privada sólo
+puede verla su autor y para las demás sesiones responde `404`.
+
+El seed local incorpora tres cuentas: `demo@example.com` (`@demo`),
+`demo2@example.com` (`@demo2`) y `empty@example.com` (`@empty`), todas con
+contraseña `demo-password`. `@demo` demuestra feed, deduplicación y detalle;
+`@empty` demuestra una página sin actividad. Las fotos docentes se cargan al
+proveedor local o S3 a través del mismo contrato `MediaStorage` usado por las
+reseñas normales.
+
 Para probar el contrato conservando la cookie entre comandos:
 
 ```console
