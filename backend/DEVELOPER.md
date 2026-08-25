@@ -239,7 +239,7 @@ antes de reutilizar el CRUD en un despliegue real.
 
 ### Fixtures y seed
 
-`app/db/fixtures.py` declara dos usuarios docentes, ocho estilos y diez
+`app/db/fixtures.py` declara tres usuarios docentes, ocho estilos y diez
 restaurantes ficticios con UUID estables. `app/db/seed.py` contiene la
 inserción. Separar datos y mecanismo hace visible qué contenido es docente y
 permite probar la idempotencia sin mezclarlo con el runtime del API.
@@ -270,7 +270,7 @@ La creación separa tres representaciones que no deben confundirse:
 La base no conoce paths físicos ni URLs prefirmadas. `Photo.content_url` deriva
 siempre de su UUID como `/api/v1/photos/{id}/content`. Esa ruta vuelve a
 autorizar la solicitud y luego responde con `FileResponse` en local o con una
-redirección 307 de corta duración en S3. Por eso las respuestas del futuro feed
+redirección 307 de corta duración en S3. Por eso las respuestas del feed
 pueden ser estables aunque cambie el proveedor.
 
 ### Feed de reseñas
@@ -319,9 +319,10 @@ se registra el incidente sin ocultar la falla original. Una reconciliación
 periódica de huérfanos sería la evolución apropiada para producción.
 
 El contrato de creación usa `multipart/form-data` y responde una reseña con
-exactamente una fotografía pública. Rating, comentarios y el endpoint de
-detalle/feed pertenecen a evoluciones posteriores. El header `Location` ya
-reserva `/api/v1/reviews/{id}` para ese recurso de detalle.
+exactamente una fotografía pública. Rating y comentarios pertenecen a
+evoluciones posteriores. El header `Location` apunta a
+`/api/v1/reviews/{id}`, implementado por el router de feed como recurso de
+detalle.
 
 ## Configuración
 

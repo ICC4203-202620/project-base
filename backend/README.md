@@ -217,6 +217,12 @@ curl -i -b foodie-cookie.txt \
   http://localhost:5173/api/v1/auth/session
 
 curl -i -b foodie-cookie.txt \
+  'http://localhost:5173/api/v1/feed?limit=2'
+
+curl -i -b foodie-cookie.txt \
+  http://localhost:5173/api/v1/reviews/30000000-0000-4000-8000-000000000001
+
+curl -i -b foodie-cookie.txt \
   'http://localhost:5173/api/v1/restaurants?limit=3&offset=0'
 
 curl -i -b foodie-cookie.txt \
