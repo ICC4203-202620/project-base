@@ -1,7 +1,8 @@
 from enum import StrEnum
+from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEVELOPMENT_JWT_SECRET = "development-only-change-me-change-me"
@@ -10,6 +11,11 @@ DEVELOPMENT_JWT_SECRET = "development-only-change-me-change-me"
 class DatabaseBackend(StrEnum):
     POSTGRESQL = "postgresql"
     AURORA_DSQL = "aurora-dsql"
+
+
+class MediaStorageBackend(StrEnum):
+    LOCAL = "local"
+    S3 = "s3"
 
 
 class Settings(BaseSettings):
@@ -27,7 +33,19 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     seed_demo_data: bool = False
+    media_storage_backend: MediaStorageBackend = MediaStorageBackend.LOCAL
+    media_local_path: Path = Path("var/media")
+    media_max_upload_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    media_s3_bucket: str | None = None
+    media_s3_region: str | None = None
+    media_s3_prefix: str = "foodie"
+    media_presigned_url_expiration_seconds: int = Field(default=300, ge=1, le=3600)
     model_config = SettingsConfigDict(extra="ignore")
+
+    @field_validator("media_s3_bucket", "media_s3_region", mode="before")
+    @classmethod
+    def empty_media_setting_is_none(cls, value):
+        return None if value == "" else value
 
     @model_validator(mode="after")
     def validate_deployment_settings(self):
@@ -38,6 +56,14 @@ class Settings(BaseSettings):
                 "AURORA_DSQL_ENDPOINT and AURORA_DSQL_USER are required "
                 "when DATABASE_BACKEND=aurora-dsql"
             )
+
+        if self.media_storage_backend is MediaStorageBackend.S3 and not self.media_s3_bucket:
+            raise ValueError("MEDIA_S3_BUCKET is required when MEDIA_STORAGE_BACKEND=s3")
+
+        normalized_prefix = self.media_s3_prefix.strip().strip("/")
+        if any(part in {"", ".", ".."} for part in normalized_prefix.split("/")):
+            raise ValueError("MEDIA_S3_PREFIX must contain safe path segments")
+        self.media_s3_prefix = normalized_prefix
 
         if self.environment == "production":
             if self.jwt_secret == DEVELOPMENT_JWT_SECRET:

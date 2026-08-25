@@ -62,6 +62,10 @@ explica su [relación con PostgreSQL](https://docs.aws.amazon.com/aurora-dsql/la
   nunca durante un cold start. La aplicación Lambda no necesita permisos DDL.
 - **Sesiones:** el JWT identifica mediante `jti` una fila de `auth_sessions` en
   la base compartida. Logout y caducación no dependen de la memoria de Lambda.
+- **Fotografías:** producción usa un bucket S3 privado. `photos.storage_key`
+  conserva una clave opaca y la ruta estable de la API autoriza antes de emitir
+  una URL prefirmada breve. El filesystem sólo es un adaptador de desarrollo;
+  no se usa el almacenamiento efímero de Lambda como persistencia.
 - **Secretos:** los valores de producción se inyectan en el despliegue y no se
   guardan en Git. `JWT_SECRET` se obtiene de AWS Secrets Manager o del almacén
   de secretos del pipeline y se entrega como variable cifrada de Lambda. Si el
@@ -90,6 +94,11 @@ JWT_SECRET=<inyectado por la plataforma>
 COOKIE_SECURE=true
 CORS_ORIGINS=https://app.example.com
 SEED_DEMO_DATA=false
+MEDIA_STORAGE_BACKEND=s3
+MEDIA_S3_BUCKET=<bucket-privado>
+MEDIA_S3_REGION=<region>
+MEDIA_S3_PREFIX=foodie
+MEDIA_PRESIGNED_URL_EXPIRATION_SECONDS=300
 ```
 
 Para DSQL se reemplaza la configuración de conexión:
@@ -135,6 +144,29 @@ la respuesta; Mangum realiza esa traducción. Cuando CloudFront se incorpore,
 el comportamiento `/api/*` debe reenviar cookies, permitir los métodos HTTP y
 mantener el caché deshabilitado. Nunca se debe incluir JWT, `Cookie` o
 `Set-Cookie` en logs.
+
+## Fotografías, payload binario y S3
+
+Mangum decodifica el cuerpo base64 del evento HTTP API v2 y entrega el multipart
+a la misma ruta FastAPI; `tests/test_lambda.py` verifica ese recorrido. API
+Gateway mantiene límites de payload que incluyen el cuerpo codificado y el
+overhead multipart. Por eso `MEDIA_MAX_UPLOAD_BYTES` debe configurarse por
+debajo del límite efectivo del API, no igualarlo mecánicamente. AWS documenta
+el manejo de [contenido binario con API Gateway y
+Lambda](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-payload-encodings.html).
+
+La entrega 2 conserva el upload a través del backend para ofrecer un contrato
+sencillo. Si las mediciones o límites de la entrega 4 lo requieren, el flujo
+puede evolucionar a: solicitar autorización, subir directamente a S3 con una
+URL prefirmada y confirmar la reseña. `reviews`, `photos`, `storage_key` y la
+ruta estable de lectura no tienen que cambiar; sólo se agrega el protocolo de
+carga directa y su compensación de objetos no confirmados.
+
+El rol de ejecución de Lambda necesita únicamente operaciones de objeto sobre
+el prefix configurado (`s3:PutObject`, `s3:GetObject` y `s3:DeleteObject`), no
+administración del bucket. Boto3 usa automáticamente las credenciales de ese
+rol. Las URLs prefirmadas heredan sus permisos y caducan según
+`MEDIA_PRESIGNED_URL_EXPIRATION_SECONDS`; no se persisten ni se registran.
 
 ## IAM y roles de base de datos
 
@@ -211,8 +243,9 @@ concurrencia optimista.
 ## Validación mínima
 
 `tests/test_lambda.py` entrega a Mangum eventos HTTP API v2 realistas y exige
-que `GET /healthz`, las cookies de autenticación y el listado protegido de
-restaurantes se comporten igual que bajo Uvicorn. Antes de desplegar:
+que `GET /healthz`, las cookies de autenticación, el listado protegido y una
+carga multipart binaria se comporten igual que bajo Uvicorn. Antes de
+desplegar:
 
 ```console
 cd backend
@@ -240,3 +273,5 @@ verifica que no exista seed de demostración.
 - [Cuotas y límites de DSQL](https://docs.aws.amazon.com/aurora-dsql/latest/userguide/CHAP_quotas.html)
 - [Buenas prácticas de Lambda](https://docs.aws.amazon.com/lambda/latest/dg/best-practices.html)
 - [Empaquetado ZIP de Python](https://docs.aws.amazon.com/lambda/latest/dg/python-package.html)
+- [Boto3: carga administrada desde un objeto de archivo](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3/client/upload_fileobj.html)
+- [Amazon S3: URLs prefirmadas](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)

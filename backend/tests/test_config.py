@@ -36,3 +36,18 @@ def test_production_rejects_demo_seed():
             cookie_secure=True,
             seed_demo_data=True,
         )
+
+
+def test_s3_media_storage_requires_bucket_and_valid_expiration():
+    with pytest.raises(ValidationError, match="MEDIA_S3_BUCKET"):
+        Settings(media_storage_backend="s3")
+
+    with pytest.raises(ValidationError, match="media_presigned_url_expiration_seconds"):
+        Settings(media_presigned_url_expiration_seconds=0)
+
+
+def test_blank_optional_s3_settings_are_normalized():
+    config = Settings(media_s3_bucket="", media_s3_region="")
+
+    assert config.media_s3_bucket is None
+    assert config.media_s3_region is None

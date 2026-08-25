@@ -8,4 +8,4 @@ EXPOSE 8000
 ENTRYPOINT ["/app/entrypoint.sh"]
 
 FROM runtime AS test
-RUN pip install --no-cache-dir "httpx2>=2,<3" "pytest>=8.3,<9"
+RUN pip install --no-cache-dir "httpx2>=2,<3" "pytest>=8.3,<9" "ruff>=0.9,<1"

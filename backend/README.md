@@ -109,6 +109,62 @@ restaurantes. Esa simplificación permite practicar el CRUD, pero **no es un
 modelo de autorización apropiado para producción**: roles, ownership y
 moderación quedan para una evolución posterior.
 
+### Creación de reseñas con fotografía
+
+`POST /api/v1/reviews` crea la reseña pública de la sesión vigente. Recibe
+`multipart/form-data` con exactamente estos campos:
+
+| Campo | Tipo y límite |
+| --- | --- |
+| `restaurant_id` | UUID de un restaurante existente. |
+| `dish_name` | Texto entre 1 y 120 caracteres, sin contar espacios exteriores. |
+| `text` | Texto entre 1 y 2000 caracteres, sin contar espacios exteriores. |
+| `photo` | Una imagen JPEG, PNG o WebP válida; 10 MiB como máximo por defecto. |
+
+El backend comprueba el contenido real de la imagen, no solamente el nombre o
+el MIME informado por el cliente. Una creación exitosa responde `201 Created`,
+incluye el path futuro de detalle en `Location` y entrega una URL estable como
+`/api/v1/photos/{photo_id}/content`. Esta última requiere sesión: nunca expone
+la ruta del disco, la clave S3 ni guarda una URL prefirmada en la base.
+
+Por ejemplo, después del login del siguiente bloque, reemplaza
+`foto-del-plato.jpg` por una imagen propia:
+
+```console
+curl -i -b foodie-cookie.txt \
+  -H 'Origin: http://localhost:5173' \
+  -F 'restaurant_id=20000000-0000-4000-8000-000000000001' \
+  -F 'dish_name=Pastel de choclo' \
+  -F 'text=Muy sabroso y bien presentado.' \
+  -F 'photo=@foto-del-plato.jpg;type=image/jpeg' \
+  http://localhost:5173/api/v1/reviews
+```
+
+No agregues manualmente `Content-Type: multipart/form-data`: `curl` y
+`FormData` en el navegador generan el boundary que separa las partes. La
+[guía de archivos de FastAPI](https://fastapi.tiangolo.com/tutorial/request-files/)
+explica por qué `UploadFile` permite procesar la carga sin copiar un archivo
+arbitrariamente grande completo a memoria.
+
+En Docker Compose, `MEDIA_STORAGE_BACKEND=local` guarda las fotografías en el
+volumen nombrado `media-data`, montado en `/data/media`. `docker compose down`
+y la recreación del contenedor conservan tanto ese volumen como
+`postgres-data`. Para borrar deliberadamente **todos** los datos locales del
+proyecto, incluidos base y fotografías, usa `docker compose down --volumes`.
+Si sólo necesitas retirar las fotografías, detén primero el stack con
+`docker compose down` y elimina `project-base_media-data` con
+`docker volume rm project-base_media-data`; el prefijo cambia si usaste otro
+nombre de proyecto Compose.
+
+Para probar un bucket privado S3, configura las variables documentadas en
+`.env.local.example` y cambia `MEDIA_STORAGE_BACKEND=s3`. Boto3 usa su
+[cadena normal de credenciales](https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html):
+en desarrollo puede recibir un perfil o variables desde un override local, y
+en Lambda usa el rol de ejecución. Nunca agregues access keys al repositorio.
+La API devuelve una redirección temporal a una
+[URL prefirmada](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)
+después de autorizar la ruta estable.
+
 Para probar el contrato conservando la cookie entre comandos:
 
 ```console
@@ -177,8 +233,8 @@ docker compose --profile test down --remove-orphans
 El perfil `test` crea `test-db` sin volumen persistente y el servicio
 `backend-tests` prueba un ciclo completo de upgrade/downgrade, ejecuta el seed
 y corre Pytest. Cubre autenticación, CRUD, asociaciones, duplicados,
-idempotencia y validación contra la base migrada; no usa la base `db` de
-desarrollo.
+idempotencia, cargas multipart, compensación de storage y validación contra la
+base migrada; no usa la base `db` de desarrollo.
 
 No agregues `-v` al comando de limpieza: Compose lo aplicaría a todo el
 proyecto y eliminaría también `postgres-data`, el volumen de la base de
