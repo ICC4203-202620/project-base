@@ -1,11 +1,11 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import insert, select
+from sqlalchemy import insert, or_, select
 from sqlalchemy.engine import Connection
 
 from app.core.config import settings
 from app.core.security import hash_password
-from app.db.fixtures import CUISINE_STYLES, RESTAURANTS
+from app.db.fixtures import CUISINE_STYLES, DEMO_USERS, RESTAURANTS
 from app.db.schema import (
     cuisine_styles,
     restaurant_cuisine_styles,
@@ -16,20 +16,39 @@ from app.db.session import engine
 from app.services.restaurants import normalize_restaurant_text, restaurant_identity_key
 
 
-def _seed_user(connection: Connection) -> bool:
-    if connection.scalar(select(users.c.id).where(users.c.email == "demo@example.com")):
-        return False
-    connection.execute(
-        insert(users).values(
-            id=uuid4(),
-            email="demo@example.com",
-            handle="@demo",
-            name="Demo Foodie",
-            nationality="Chile",
-            password_hash=hash_password("demo-password"),
+def _seed_users(connection: Connection) -> bool:
+    """Insert only demo users absent by both stable identity and email."""
+    existing = (
+        connection.execute(
+            select(users.c.id, users.c.email).where(
+                or_(
+                    users.c.id.in_(fixture.id for fixture in DEMO_USERS),
+                    users.c.email.in_(fixture.email for fixture in DEMO_USERS),
+                )
+            )
         )
+        .mappings()
+        .all()
     )
-    return True
+    existing_ids = {row["id"] for row in existing}
+    existing_emails = {row["email"] for row in existing}
+
+    changed = False
+    for fixture in DEMO_USERS:
+        if fixture.id in existing_ids or fixture.email in existing_emails:
+            continue
+        connection.execute(
+            insert(users).values(
+                id=fixture.id,
+                email=fixture.email,
+                handle=fixture.handle,
+                name=fixture.name,
+                nationality=fixture.nationality,
+                password_hash=hash_password(fixture.password),
+            )
+        )
+        changed = True
+    return changed
 
 
 def _seed_cuisine_styles(connection: Connection) -> tuple[dict[str, UUID], bool]:
@@ -106,10 +125,10 @@ def seed() -> bool:
         return False
 
     with engine.begin() as connection:
-        user_changed = _seed_user(connection)
+        users_changed = _seed_users(connection)
         style_ids, styles_changed = _seed_cuisine_styles(connection)
         restaurants_changed = _seed_restaurants(connection, style_ids)
-    return user_changed or styles_changed or restaurants_changed
+    return users_changed or styles_changed or restaurants_changed
 
 
 if __name__ == "__main__":

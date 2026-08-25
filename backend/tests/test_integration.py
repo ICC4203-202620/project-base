@@ -12,7 +12,7 @@ from sqlalchemy import func, inspect, select, update
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db import seed as seed_module
-from app.db.fixtures import CUISINE_STYLES, RESTAURANTS
+from app.db.fixtures import CUISINE_STYLES, DEMO_USERS, RESTAURANTS
 from app.db.schema import auth_sessions, cuisine_styles, photos, restaurants, reviews, users
 from app.db.session import engine
 from app.main import app
@@ -49,6 +49,23 @@ def test_seeded_user_is_persisted():
         )
 
     assert dict(user) == {"email": "demo@example.com", "handle": "@demo"}
+
+
+def test_all_seeded_demo_users_are_persisted():
+    with engine.connect() as connection:
+        seeded_users = (
+            connection.execute(
+                select(users.c.id, users.c.email, users.c.handle).where(
+                    users.c.email.in_(fixture.email for fixture in DEMO_USERS)
+                )
+            )
+            .mappings()
+            .all()
+        )
+
+    assert {(user["id"], user["email"], user["handle"]) for user in seeded_users} == {
+        (fixture.id, fixture.email, fixture.handle) for fixture in DEMO_USERS
+    }
 
 
 def test_restaurant_fixtures_are_persisted():
@@ -115,6 +132,27 @@ def test_login_session_logout_lifecycle_uses_persisted_revocation():
         ).status_code
         == 204
     )
+
+
+def test_demo_users_have_independent_sessions_and_revocations():
+    sender = TestClient(app)
+    receiver = TestClient(app)
+
+    for client, fixture in zip((sender, receiver), DEMO_USERS, strict=True):
+        response = client.post(
+            "/api/v1/auth/login",
+            headers={"Origin": "http://testserver"},
+            json={"email": fixture.email, "password": fixture.password},
+        )
+        assert response.status_code == 204
+        assert client.get("/api/v1/auth/session").json()["user"]["email"] == fixture.email
+
+    assert (
+        sender.post("/api/v1/auth/logout", headers={"Origin": "http://testserver"}).status_code
+        == 204
+    )
+    assert sender.get("/api/v1/auth/session").status_code == 401
+    assert receiver.get("/api/v1/auth/session").json()["user"]["email"] == DEMO_USERS[1].email
 
 
 def test_expired_and_unknown_sessions_are_rejected():

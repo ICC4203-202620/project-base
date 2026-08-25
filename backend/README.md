@@ -60,10 +60,20 @@ diagnóstico. La interfaz interactiva de
 mediante el gateway en <http://localhost:5173/docs>.
 
 El contenedor aplica las migraciones y, solo en la configuración de Docker
-Compose de desarrollo, carga datos docentes si no existen: el usuario
-`demo@example.com` con contraseña `demo-password`, ocho estilos de comida y
-diez restaurantes ficticios de Santiago. Sirven para explorar el API sin tener
-que ingresar datos manualmente; no representan locales comerciales reales.
+Compose de desarrollo, carga datos docentes si no existen: dos usuarios, ocho
+estilos de comida y diez restaurantes ficticios de Santiago. Sirven para
+explorar el API sin tener que ingresar datos manualmente; no representan
+locales comerciales reales.
+
+| Correo | Contraseña | Handle | Uso sugerido |
+| --- | --- | --- | --- |
+| `demo@example.com` | `demo-password` | `@demo` | Emisor o receptor de prueba |
+| `demo2@example.com` | `demo-password` | `@demo2` | Emisor o receptor de prueba |
+
+Estas credenciales son exclusivamente locales y docentes; no son secretos y no
+deben reutilizarse en despliegues reales. Para probar notificaciones, inicia
+sesión con cada cuenta en un perfil, navegador o dispositivo independiente y
+habilita las notificaciones en cada instalación manualmente.
 
 El backend ofrece el ciclo de sesión completo:
 
@@ -192,15 +202,15 @@ curl -i -b foodie-cookie.txt \
 ```
 
 Usa un archivo temporal propio si compartes el computador y elimínalo al
-terminar: contiene una credencial válida. El seed usa un UUID generado por la
-aplicación, no una contraseña ni identificador de producción. No incluyan
-secretos, cookies ni contraseñas de producción en Git.
+terminar: contiene una credencial válida. El seed usa UUID estables docentes,
+no contraseñas ni identificadores de producción. No incluyan secretos, cookies
+ni contraseñas de producción en Git.
 
 El seed está desactivado por defecto. Para activarlo fuera de Docker Compose,
-establece `SEED_DEMO_DATA=true`. Los UUID de estilos y restaurantes son
-estables: ejecutarlo nuevamente no duplica filas ni reemplaza cambios hechos
-por un estudiante. La configuración rechaza explícitamente el seed en
-`ENVIRONMENT=production`.
+establece `SEED_DEMO_DATA=true`. Los UUID de los usuarios, estilos y
+restaurantes son estables: ejecutarlo nuevamente no duplica filas ni reemplaza
+cambios hechos por un estudiante. La configuración rechaza explícitamente el
+seed en `ENVIRONMENT=production`.
 
 Para detener los servicios conservando los datos locales:
 
