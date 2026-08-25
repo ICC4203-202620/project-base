@@ -45,6 +45,7 @@ ENV/
 .coverage.*
 htmlcov/
 *.sqlite3
+backend/var/media/
 
 # --- JavaScript / Node (PWA y frontend React) ---
 node_modules/

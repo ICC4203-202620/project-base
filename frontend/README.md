@@ -103,6 +103,36 @@ Los valores del backend se asignan con `textContent` y se estructuran con
 por qué [`textContent`](https://developer.mozilla.org/docs/Web/API/Node/textContent)
 es apropiado para tratar la respuesta como texto y no como markup ejecutable.
 
+## Contrato para crear una reseña
+
+El esqueleto no implementa el formulario de reseña: construir esa experiencia
+es parte de la entrega. El backend ya ofrece `POST /api/v1/reviews` autenticado
+y recibe `restaurant_id`, `dish_name`, `text` y una única `photo` como
+`multipart/form-data`. En JavaScript se construye con
+[`FormData`](https://developer.mozilla.org/docs/Web/API/FormData):
+
+```js
+const body = new FormData();
+body.append("restaurant_id", restaurantId);
+body.append("dish_name", dishName);
+body.append("text", reviewText);
+body.append("photo", fileInput.files[0]);
+
+const response = await fetch("/api/v1/reviews", {
+  method: "POST",
+  credentials: "include",
+  body,
+});
+```
+
+No definas el header `Content-Type` manualmente: el navegador debe agregar el
+`boundary` propio de ese `FormData`. Antes de enviar, la interfaz puede ayudar
+comprobando que exista exactamente un archivo y que su tipo/tamaño estén dentro
+del contrato documentado, pero el backend siempre repite la validación. La
+respuesta incluye `photo.content_url`, que es relativa, estable y requiere la
+misma cookie; así funciona con localhost, IP, mDNS, el futuro subdominio y
+CloudFront sin incrustar hosts en el código.
+
 La misma convención sirve para las siguientes etapas:
 
 - **Entrega 3:** nginx sirve el build estático de React en `/` y mantiene el

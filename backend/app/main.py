@@ -4,6 +4,7 @@ from mangum import Mangum
 
 from app.api.auth import router as auth_router
 from app.api.restaurants import router as restaurants_router
+from app.api.reviews import photos_router, reviews_router
 from app.core.config import settings
 
 app = FastAPI(title="Foodie API", version="0.1.0")
@@ -16,6 +17,8 @@ app.add_middleware(
 )
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(restaurants_router, prefix="/api/v1")
+app.include_router(reviews_router, prefix="/api/v1")
+app.include_router(photos_router, prefix="/api/v1")
 
 
 @app.get("/healthz", tags=["health"])

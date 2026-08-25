@@ -1,4 +1,15 @@
-from sqlalchemy import Column, DateTime, Index, MetaData, Numeric, String, Table, Uuid, text
+from sqlalchemy import (
+    BigInteger,
+    Column,
+    DateTime,
+    Index,
+    MetaData,
+    Numeric,
+    String,
+    Table,
+    Uuid,
+    text,
+)
 
 metadata = MetaData()
 users = Table(
@@ -91,4 +102,51 @@ restaurant_cuisine_styles = Table(
 Index(
     "ix_restaurant_cuisine_styles_cuisine_style_id",
     restaurant_cuisine_styles.c.cuisine_style_id,
+)
+
+photos = Table(
+    "photos",
+    metadata,
+    Column("id", Uuid(as_uuid=True), primary_key=True),
+    # Aurora DSQL does not support foreign keys. Review services validate these
+    # relationships in the same transaction that persists the metadata.
+    Column("author_id", Uuid(as_uuid=True), nullable=False),
+    Column("restaurant_id", Uuid(as_uuid=True), nullable=False),
+    Column("storage_key", String(512), nullable=False),
+    Column("content_type", String(64), nullable=False),
+    Column("size_bytes", BigInteger(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+Index("uq_photos_storage_key", photos.c.storage_key, unique=True)
+Index("ix_photos_author_id", photos.c.author_id)
+Index("ix_photos_restaurant_id", photos.c.restaurant_id)
+
+reviews = Table(
+    "reviews",
+    metadata,
+    Column("id", Uuid(as_uuid=True), primary_key=True),
+    Column("author_id", Uuid(as_uuid=True), nullable=False),
+    Column("restaurant_id", Uuid(as_uuid=True), nullable=False),
+    Column("photo_id", Uuid(as_uuid=True), nullable=False),
+    Column("dish_name", String(120), nullable=False),
+    Column("text", String(2000), nullable=False),
+    Column("visibility", String(16), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+Index("uq_reviews_photo_id", reviews.c.photo_id, unique=True)
+Index("ix_reviews_author_created_id", reviews.c.author_id, reviews.c.created_at, reviews.c.id)
+Index(
+    "ix_reviews_restaurant_created_id",
+    reviews.c.restaurant_id,
+    reviews.c.created_at,
+    reviews.c.id,
+)
+Index(
+    "ix_reviews_visibility_created_id",
+    reviews.c.visibility,
+    reviews.c.created_at,
+    reviews.c.id,
 )

@@ -32,13 +32,14 @@ Las decisiones centrales son:
                               v
 cliente -> nginx -> FastAPI / APIRouter -> Pydantic -> caso de uso
                                                |             |
+                                               |             +-> MediaStorage
+                                               |             |      +-> volumen local
+                                               |             |      \-> bucket S3 privado
                                                |             v
                                                |      SQLAlchemy Core
                                                |             |
                                                |             v
-                                               |     Engine + Psycopg
-                                               |             |
-                                               +---- PostgreSQL / DSQL
+                                               +----- PostgreSQL / DSQL
 
 desarrollo: Uvicorn -----------------> app.main:app
 AWS: API Gateway -> Lambda -> Mangum -> app.main:app
@@ -65,6 +66,8 @@ presenta frontend y backend bajo un mismo origen; internamente envía `/api/*`,
 | [argon2-cffi](https://argon2-cffi.readthedocs.io/en/stable/api.html) | Hash y verificación de contraseñas con Argon2 | `app/core/security.py` |
 | [PyJWT](https://pyjwt.readthedocs.io/en/stable/) | Firma de tokens JWT para la sesión | `app/core/security.py` |
 | [Mangum](https://mangum.fastapiexpert.com/) | Adaptación de eventos API Gateway/Lambda a ASGI | `app/main.py` |
+| [Pillow](https://pillow.readthedocs.io/) | Verificación del contenido real de JPEG, PNG y WebP | `app/services/reviews.py` |
+| [Boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/index.html) | Adaptador de objetos S3 y URLs prefirmadas | `app/media/storage.py` |
 | [Pytest](https://docs.pytest.org/) | Pruebas unitarias, de integración y del handler Lambda | `tests/` |
 | [Docker Compose](https://docs.docker.com/compose/) | Entorno reproducible de desarrollo y pruebas | `../docker-compose.yml` |
 
@@ -82,15 +85,20 @@ backend/
 │   ├── api/
 │   │   ├── auth.py         contratos HTTP, respuestas y cookies
 │   │   ├── dependencies.py sesión actual y protección de origen
-│   │   └── restaurants.py  contrato HTTP del CRUD protegido
+│   │   ├── restaurants.py  contrato HTTP del CRUD protegido
+│   │   └── reviews.py      creación multipart y entrega de fotografías
 │   ├── schemas/
-│   │   └── restaurants.py  modelos Pydantic de entrada y salida
+│   │   ├── restaurants.py  modelos Pydantic del CRUD
+│   │   └── reviews.py      respuesta pública de reseña y fotografía
+│   ├── media/
+│   │   └── storage.py      contrato y adaptadores local/S3
 │   ├── core/
 │   │   ├── config.py       configuración y validaciones por ambiente
 │   │   └── security.py     passwords, creación y validación de JWT
 │   ├── services/
 │   │   ├── auth.py         caso de uso y sesiones persistentes
-│   │   └── restaurants.py  reglas, consultas y transacciones del recurso
+│   │   ├── restaurants.py  reglas, consultas y transacciones del recurso
+│   │   └── reviews.py      validación, persistencia y compensación de medios
 │   └── db/
 │       ├── engine.py       engines PostgreSQL/DSQL y políticas de pool
 │       ├── fixtures.py     datos docentes deterministas, sin inserciones
@@ -242,6 +250,57 @@ existente ni reemplaza asociaciones: reiniciar Compose conserva cambios de los
 estudiantes. `Settings` rechaza esta opción en producción y Lambda no ejecuta
 el entrypoint local, por lo que las fixtures no forman parte del bootstrap AWS.
 
+## Reseñas y almacenamiento de fotografías
+
+La creación separa tres representaciones que no deben confundirse:
+
+- `reviews` conserva autor, restaurante, plato, texto, visibilidad y fechas;
+- `photos` conserva identidad, relaciones, MIME, tamaño y una `storage_key`
+  opaca; y
+- el proveedor de objetos conserva los bytes en el volumen local o en S3.
+
+La base no conoce paths físicos ni URLs prefirmadas. `Photo.content_url` deriva
+siempre de su UUID como `/api/v1/photos/{id}/content`. Esa ruta vuelve a
+autorizar la solicitud y luego responde con `FileResponse` en local o con una
+redirección 307 de corta duración en S3. Por eso las respuestas del futuro feed
+pueden ser estables aunque cambie el proveedor.
+
+`app/media/storage.py` declara el protocolo `MediaStorage`: `store`, `resolve`
+y `delete`. Los casos de uso y routers reciben ese contrato mediante una
+dependencia; elegir `local` o `s3` sólo cambia configuración e inyección. El
+adaptador local genera una clave a partir del UUID y escribe primero un archivo
+temporal, hace `fsync` y lo reemplaza atómicamente. El adaptador S3 usa
+`upload_fileobj`, conserva el bucket privado y resuelve lecturas mediante una
+URL prefirmada breve. Ninguno utiliza el filename enviado por el cliente.
+
+FastAPI y `python-multipart` entregan la fotografía como `UploadFile`. El
+servicio mide el stream, impone `MEDIA_MAX_UPLOAD_BYTES` y usa Pillow para
+verificar que sea un JPEG, PNG o WebP íntegro cuyo contenido coincida con el
+MIME declarado. nginx tiene un límite algo mayor para admitir el overhead del
+multipart. La validación ocurre antes de crear filas.
+
+El filesystem/S3 y SQL no comparten una transacción distribuida. El caso de uso
+aplica esta secuencia deliberada:
+
+```text
+validar -> almacenar objeto -> transacción photos + reviews
+                    |                    |
+                    |                    \-> si falla, borrar objeto
+                    \-> si falla, no abrir transacción SQL
+```
+
+UUID y timestamp se calculan una sola vez antes de la escritura. La transacción
+comprueba que el restaurante exista y persiste ambas filas, preservando las
+relaciones que DSQL no puede imponer con foreign keys. Si SQL falla, una
+compensación _best effort_ elimina el objeto; si también falla la compensación,
+se registra el incidente sin ocultar la falla original. Una reconciliación
+periódica de huérfanos sería la evolución apropiada para producción.
+
+El contrato de creación usa `multipart/form-data` y responde una reseña con
+exactamente una fotografía pública. Rating, comentarios y el endpoint de
+detalle/feed pertenecen a evoluciones posteriores. El header `Location` ya
+reserva `/api/v1/reviews/{id}` para ese recurso de detalle.
+
 ## Configuración
 
 `app/core/config.py` define `Settings`, que hereda de `BaseSettings`. Pydantic
@@ -255,8 +314,11 @@ Las variables se agrupan conceptualmente así:
 - ambiente: `ENVIRONMENT`;
 - base: `DATABASE_BACKEND`, `DATABASE_URL`, `AURORA_DSQL_*` y opciones del pool;
 - sesión: `JWT_SECRET`, `JWT_EXPIRATION_MINUTES` y `COOKIE_SECURE`;
-- navegador: `CORS_ORIGINS`; y
-- datos locales: `SEED_DEMO_DATA`.
+- navegador: `CORS_ORIGINS`;
+- datos locales: `SEED_DEMO_DATA`; y
+- medios: `MEDIA_STORAGE_BACKEND`, `MEDIA_LOCAL_PATH`,
+  `MEDIA_MAX_UPLOAD_BYTES`, `MEDIA_S3_BUCKET`, `MEDIA_S3_REGION`,
+  `MEDIA_S3_PREFIX` y `MEDIA_PRESIGNED_URL_EXPIRATION_SECONDS`.
 
 En producción, la configuración rechaza el secreto de desarrollo, exige
 cookies `Secure` e impide habilitar las fixtures. Los secretos se inyectan desde
@@ -389,10 +451,13 @@ La suite combina niveles distintos:
 - `test_config.py`: invariantes de configuración;
 - `test_database.py`: construcción de engines PostgreSQL/DSQL;
 - `test_seed.py`: idempotencia del seed;
+- `test_media_storage.py`: contrato local/S3 sin una cuenta AWS;
+- `test_reviews.py` y `test_reviews_service.py`: multipart, autorización,
+  imágenes, fallas parciales y compensación;
 - `test_integration.py`: ciclo completo de migraciones, seed, autenticación y
-  CRUD de restaurantes contra PostgreSQL real; y
-- `test_lambda.py`: eventos API Gateway HTTP API v2 y cookies procesados por
-  Mangum.
+  persistencia de restaurantes/reseñas contra PostgreSQL real; y
+- `test_lambda.py`: eventos API Gateway HTTP API v2, cookies y un upload
+  multipart binario procesados por Mangum.
 
 Para desarrollo rápido:
 
@@ -428,7 +493,8 @@ Estas reglas mantienen abierta la migración futura:
 - las conexiones se administran mediante pools pequeños y reciclables;
 - las migraciones no se ejecutan durante una invocación Lambda;
 - las transacciones de escritura deben ser pequeñas y reintentables;
-- las relaciones se mantienen en la aplicación, sin foreign keys ni cascadas; y
+- las relaciones se mantienen en la aplicación, sin foreign keys ni cascadas;
+- los bytes viven en storage externo y la base conserva sólo una clave opaca; y
 - cada uso de una característica PostgreSQL debe comprobarse contra las
   capacidades de DSQL.
 
@@ -464,4 +530,8 @@ observabilidad y las diferencias de compatibilidad que deben verificarse.
 - [argon2-cffi](https://argon2-cffi.readthedocs.io/en/stable/api.html)
 - [PyJWT](https://pyjwt.readthedocs.io/en/stable/)
 - [Mangum](https://mangum.fastapiexpert.com/)
+- [FastAPI: archivos y `UploadFile`](https://fastapi.tiangolo.com/tutorial/request-files/)
+- [Pillow](https://pillow.readthedocs.io/)
+- [Boto3: `upload_fileobj`](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3/client/upload_fileobj.html)
+- [Amazon S3: URLs prefirmadas](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)
 - [Pytest](https://docs.pytest.org/)

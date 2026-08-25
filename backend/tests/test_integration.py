@@ -1,19 +1,22 @@
 import os
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from uuid import UUID, uuid4
 
 import jwt
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 from sqlalchemy import func, inspect, select, update
 
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db import seed as seed_module
 from app.db.fixtures import CUISINE_STYLES, RESTAURANTS
-from app.db.schema import auth_sessions, cuisine_styles, restaurants, users
+from app.db.schema import auth_sessions, cuisine_styles, photos, restaurants, reviews, users
 from app.db.session import engine
 from app.main import app
+from app.media.storage import LocalMediaStorage, get_media_storage
 from app.services.restaurants import normalize_restaurant_text, restaurant_identity_key
 
 pytestmark = pytest.mark.integration
@@ -31,6 +34,8 @@ def test_migrations_create_application_tables():
     assert inspect(engine).has_table("restaurants")
     assert inspect(engine).has_table("cuisine_styles")
     assert inspect(engine).has_table("restaurant_cuisine_styles")
+    assert inspect(engine).has_table("photos")
+    assert inspect(engine).has_table("reviews")
 
 
 def test_seeded_user_is_persisted():
@@ -270,6 +275,51 @@ def test_restaurant_payload_validation_uses_fastapi_format():
 
     assert response.status_code == 422
     assert isinstance(response.json()["detail"], list)
+
+
+def test_review_upload_persists_metadata_and_local_photo(tmp_path):
+    client = authenticated_client()
+    storage = LocalMediaStorage(tmp_path)
+    app.dependency_overrides[get_media_storage] = lambda: storage
+    image = BytesIO()
+    Image.new("RGB", (2, 2), color="tomato").save(image, format="PNG")
+    try:
+        response = client.post(
+            "/api/v1/reviews",
+            headers={"Origin": "http://testserver"},
+            data={
+                "restaurant_id": str(RESTAURANTS[0].id),
+                "dish_name": "Ceviche docente",
+                "text": "Reseña creada por la prueba de integración",
+            },
+            files={"photo": ("dish.png", image.getvalue(), "image/png")},
+        )
+        assert response.status_code == 201
+        payload = response.json()
+
+        with engine.connect() as connection:
+            persisted_review = (
+                connection.execute(select(reviews).where(reviews.c.id == UUID(payload["id"])))
+                .mappings()
+                .one()
+            )
+            persisted_photo = (
+                connection.execute(
+                    select(photos).where(photos.c.id == UUID(payload["photo"]["id"]))
+                )
+                .mappings()
+                .one()
+            )
+        assert persisted_review["photo_id"] == persisted_photo["id"]
+        assert persisted_review["visibility"] == "public"
+        assert (tmp_path / persisted_photo["storage_key"]).is_file()
+
+        downloaded = client.get(payload["photo"]["content_url"])
+        assert downloaded.status_code == 200
+        assert downloaded.headers["content-type"] == "image/png"
+        assert downloaded.content == image.getvalue()
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_anonymous_restaurant_requests_do_not_modify_data():

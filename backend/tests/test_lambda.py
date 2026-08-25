@@ -1,12 +1,18 @@
+import base64
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from io import BytesIO
 from uuid import uuid4
+
+from PIL import Image
 
 from app.api import auth as auth_api
 from app.api.dependencies import get_current_session
 from app.main import app, handler
+from app.media.storage import get_media_storage
 from app.services import restaurants as restaurant_service
+from app.services import reviews as review_service
 from app.services.auth import AuthenticatedSession, IssuedSession
 
 
@@ -15,7 +21,16 @@ class LambdaContext:
     aws_request_id = "test-request"
 
 
-def api_gateway_event(method, path, *, body=None, headers=None, cookies=None, query_string=""):
+def api_gateway_event(
+    method,
+    path,
+    *,
+    body=None,
+    headers=None,
+    cookies=None,
+    query_string="",
+    is_base64_encoded=False,
+):
     event = {
         "version": "2.0",
         "routeKey": f"{method} {path}",
@@ -43,7 +58,7 @@ def api_gateway_event(method, path, *, body=None, headers=None, cookies=None, qu
             "time": "21/Aug/2026:00:00:00 +0000",
             "timeEpoch": 1787270400000,
         },
-        "isBase64Encoded": False,
+        "isBase64Encoded": is_base64_encoded,
     }
     if body is not None:
         event["body"] = body
@@ -145,3 +160,91 @@ def test_lambda_handler_serves_protected_restaurant_collection(monkeypatch):
     assert response["statusCode"] == 200
     assert json.loads(response["body"])[0]["id"] == str(restaurant.id)
     assert received == {"limit": 5, "offset": 2}
+
+
+def test_lambda_handler_parses_multipart_review_upload(monkeypatch):
+    session = AuthenticatedSession(
+        id=uuid4(),
+        user_id=uuid4(),
+        email="demo@example.com",
+        handle="@demo",
+        name="Demo Foodie",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    timestamp = datetime(2026, 8, 25, tzinfo=UTC)
+    restaurant_id = uuid4()
+    photo = review_service.Photo(
+        id=uuid4(),
+        author_id=session.user_id,
+        restaurant_id=restaurant_id,
+        storage_key="photos/lambda.png",
+        content_type="image/png",
+        size_bytes=42,
+        created_at=timestamp,
+    )
+    review = review_service.Review(
+        id=uuid4(),
+        author_id=session.user_id,
+        restaurant_id=restaurant_id,
+        dish_name="Ceviche",
+        text="Muy fresco",
+        visibility="public",
+        photo=photo,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
+    image = BytesIO()
+    Image.new("RGB", (2, 2), color="tomato").save(image, format="PNG")
+    image_bytes = image.getvalue()
+    boundary = "foodie-boundary"
+    multipart = (
+        (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="restaurant_id"\r\n\r\n'
+            f"{restaurant_id}\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="dish_name"\r\n\r\n'
+            "Ceviche\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="text"\r\n\r\n'
+            "Muy fresco\r\n"
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="photo"; filename="dish.png"\r\n'
+            "Content-Type: image/png\r\n\r\n"
+        ).encode()
+        + image_bytes
+        + f"\r\n--{boundary}--\r\n".encode()
+    )
+    received = {}
+
+    def create_review(**kwargs):
+        received.update(kwargs)
+        assert kwargs["photo_stream"].read() == image_bytes
+        return review
+
+    monkeypatch.setattr(review_service, "create_review", create_review)
+    app.dependency_overrides[get_current_session] = lambda: session
+    app.dependency_overrides[get_media_storage] = lambda: object()
+    origin = "https://example.execute-api.us-east-1.amazonaws.com"
+    try:
+        response = handler(
+            api_gateway_event(
+                "POST",
+                "/api/v1/reviews",
+                body=base64.b64encode(multipart).decode(),
+                headers={
+                    "content-type": f"multipart/form-data; boundary={boundary}",
+                    "origin": origin,
+                    "x-forwarded-proto": "https",
+                },
+                is_base64_encoded=True,
+            ),
+            LambdaContext(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response["statusCode"] == 201
+    assert json.loads(response["body"])["id"] == str(review.id)
+    assert received["author_id"] == session.user_id
+    assert received["declared_content_type"] == "image/png"
