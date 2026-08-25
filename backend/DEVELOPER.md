@@ -239,14 +239,15 @@ antes de reutilizar el CRUD en un despliegue real.
 
 ### Fixtures y seed
 
-`app/db/fixtures.py` sólo declara ocho estilos y diez restaurantes ficticios
-con UUID estables. `app/db/seed.py` contiene la inserción. Separar datos y
-mecanismo hace visible qué contenido es docente y permite probar la
-idempotencia sin mezclarlo con el runtime del API.
+`app/db/fixtures.py` declara dos usuarios docentes, ocho estilos y diez
+restaurantes ficticios con UUID estables. `app/db/seed.py` contiene la
+inserción. Separar datos y mecanismo hace visible qué contenido es docente y
+permite probar la idempotencia sin mezclarlo con el runtime del API.
 
-`SEED_DEMO_DATA=true` habilita usuario, estilos y restaurantes. El seed busca
-UUID, slug e identidad antes de insertar, pero nunca actualiza una fila ya
-existente ni reemplaza asociaciones: reiniciar Compose conserva cambios de los
+`SEED_DEMO_DATA=true` habilita usuarios, estilos y restaurantes. Para los
+usuarios, el seed busca tanto UUID como correo; para estilos y restaurantes,
+UUID, slug e identidad antes de insertar. Nunca actualiza una fila ya existente
+ni reemplaza asociaciones: reiniciar Compose conserva cambios de los
 estudiantes. `Settings` rechaza esta opción en producción y Lambda no ejecuta
 el entrypoint local, por lo que las fixtures no forman parte del bootstrap AWS.
 

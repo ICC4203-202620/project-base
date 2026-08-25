@@ -13,6 +13,16 @@ class CuisineStyleFixture:
 
 
 @dataclass(frozen=True)
+class UserFixture:
+    id: UUID
+    email: str
+    handle: str
+    name: str
+    nationality: str
+    password: str
+
+
+@dataclass(frozen=True)
 class RestaurantFixture:
     id: UUID
     name: str
@@ -20,6 +30,26 @@ class RestaurantFixture:
     latitude: Decimal
     longitude: Decimal
     cuisine_styles: tuple[str, ...]
+
+
+DEMO_USERS = (
+    UserFixture(
+        UUID("00000000-0000-4000-8000-000000000001"),
+        "demo@example.com",
+        "@demo",
+        "Demo Foodie",
+        "Chile",
+        "demo-password",
+    ),
+    UserFixture(
+        UUID("00000000-0000-4000-8000-000000000002"),
+        "demo2@example.com",
+        "@demo2",
+        "Demo Foodie Dos",
+        "Argentina",
+        "demo-password",
+    ),
+)
 
 
 CUISINE_STYLES = (

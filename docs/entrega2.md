@@ -44,6 +44,14 @@ Se recomienda comenzar el desarrollo en este orden:
 5. Configura HTTPS y comprueba `/healthz` desde el dispositivo escogido al inicio del trabajo, no al final. La instalación, el service worker y Web Push dependen del navegador y de un contexto seguro; descubrir tarde una restricción de la plataforma pone en riesgo el flujo completo.
 6. Una vez verificada la base, divide el trabajo en incrementos observables: manifest e instalación; app shell y actualización; persistencia offline por usuario; suscripción Push; backend Web Push; y recepción y navegación desde la notificación. Conserva funcionando autenticación y contenido después de cada incremento.
 
+Para verificar Web Push, el seed local dispone de dos cuentas docentes con la
+misma contraseña `demo-password`: `demo@example.com` (`@demo`) y
+`demo2@example.com` (`@demo2`). Úsalas en perfiles, navegadores o dispositivos
+independientes: habilita las notificaciones explícitamente en ambas
+instalaciones, crea una reseña con una y confirma la notificación en la otra.
+Estas credenciales sólo sirven para desarrollo local y no deben reutilizarse en
+un despliegue real.
+
 Los README explican cómo ejecutar y usar el código; `backend/DEVELOPER.md` explica cómo extenderlo. Cuando exista una diferencia entre un ejemplo escrito y el backend que se está ejecutando, el contrato expuesto en `/docs` y sus pruebas automatizadas son la referencia técnica que el grupo debe verificar.
 
 ## Alcance funcional
