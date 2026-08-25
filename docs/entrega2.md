@@ -24,10 +24,7 @@ Este código es parte del punto de partida y no debe reimplementarse sin una raz
 
 ## Por dónde comenzar
 
-Antes de implementar el manifest, el service worker o Web Push, cada integrante
-debe poder ejecutar y explicar el código provisto. La documentación técnica se
-encuentra junto al componente que describe; el directorio `docs` se reserva
-para los enunciados y para el informe que prepare cada grupo.
+Antes de implementar el manifest, el service worker o Web Push, cada integrante debe poder ejecutar y explicar el código provisto. La documentación técnica se encuentra junto al componente que describe; el directorio `docs` se reserva para los enunciados y para el informe que prepare cada grupo.
 
 | Si necesitas... | Comienza en... |
 | --- | --- |
@@ -40,36 +37,14 @@ para los enunciados y para el informe que prepare cada grupo.
 
 Se recomienda comenzar el desarrollo en este orden:
 
-1. Desde la raíz del repositorio, ejecuta `docker compose up --build`. Abre
-   <http://localhost:5173> y comprueba el login, la restauración de sesión, el
-   índice protegido y el logout descritos en la
-   [verificación del frontend](../frontend/README.md#verificación-del-flujo).
-2. Abre <http://localhost:5173/docs> y revisa el contrato OpenAPI de los
-   endpoints provistos. Esta interfaz muestra los métodos, paths, cuerpos,
-   respuestas y códigos de error que el frontend debe respetar.
-3. Ejecuta las pruebas existentes antes de modificar el código. Los comandos
-   del frontend están en su sección de
-   [pruebas y build](../frontend/README.md#comandos); las alternativas para el
-   backend están en la sección de [pruebas](../backend/README.md#pruebas).
-   Ese resultado constituye la línea base con la cual distinguir una falla
-   preexistente de una regresión introducida por el grupo.
-4. Revisa la [arquitectura de un solo origen](../frontend/README.md#arquitectura-local-un-solo-origen)
-   y conserva URLs relativas `/api/...`. No escribas `localhost`, una IP, un
-   nombre mDNS ni el puerto del backend dentro del código del frontend.
-5. Configura HTTPS y comprueba `/healthz` desde el dispositivo escogido al
-   inicio del trabajo, no al final. La instalación, el service worker y Web
-   Push dependen del navegador y de un contexto seguro; descubrir tarde una
-   restricción de la plataforma pone en riesgo el flujo completo.
-6. Una vez verificada la base, divide el trabajo en incrementos observables:
-   manifest e instalación; app shell y actualización; persistencia offline por
-   usuario; suscripción Push; backend Web Push; y recepción y navegación desde
-   la notificación. Conserva funcionando autenticación y contenido después de
-   cada incremento.
+1. Desde la raíz del repositorio, ejecuta `docker compose up --build`. Abre <http://localhost:5173> y comprueba el login, la restauración de sesión, el índice protegido y el logout descritos en la [verificación del frontend](../frontend/README.md#verificación-del-flujo).
+2. Abre <http://localhost:5173/docs> y revisa el contrato OpenAPI de los endpoints provistos. Esta interfaz muestra los métodos, paths, cuerpos, respuestas y códigos de error que el frontend debe respetar.
+3. Ejecuta las pruebas existentes antes de modificar el código. Los comandos del frontend están en su sección de [pruebas y build](../frontend/README.md#comandos); las alternativas para el backend están en la sección de [pruebas](../backend/README.md#pruebas). Ese resultado constituye la línea base con la cual distinguir una falla preexistente de una regresión introducida por el grupo.
+4. Revisa la [arquitectura de un solo origen](../frontend/README.md#arquitectura-local-un-solo-origen) y conserva URLs relativas `/api/...`. No escribas `localhost`, una IP, un nombre mDNS ni el puerto del backend dentro del código del frontend.
+5. Configura HTTPS y comprueba `/healthz` desde el dispositivo escogido al inicio del trabajo, no al final. La instalación, el service worker y Web Push dependen del navegador y de un contexto seguro; descubrir tarde una restricción de la plataforma pone en riesgo el flujo completo.
+6. Una vez verificada la base, divide el trabajo en incrementos observables: manifest e instalación; app shell y actualización; persistencia offline por usuario; suscripción Push; backend Web Push; y recepción y navegación desde la notificación. Conserva funcionando autenticación y contenido después de cada incremento.
 
-Los README explican cómo ejecutar y usar el código; `backend/DEVELOPER.md`
-explica cómo extenderlo. Cuando exista una diferencia entre un ejemplo escrito
-y el backend que se está ejecutando, el contrato expuesto en `/docs` y sus
-pruebas automatizadas son la referencia técnica que el grupo debe verificar.
+Los README explican cómo ejecutar y usar el código; `backend/DEVELOPER.md` explica cómo extenderlo. Cuando exista una diferencia entre un ejemplo escrito y el backend que se está ejecutando, el contrato expuesto en `/docs` y sus pruebas automatizadas son la referencia técnica que el grupo debe verificar.
 
 ## Alcance funcional
 
