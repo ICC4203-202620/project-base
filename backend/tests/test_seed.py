@@ -2,6 +2,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.pool import StaticPool
 
 from app.db import seed as seed_module
@@ -313,3 +314,40 @@ def test_seed_rejects_ambiguous_user_identity(monkeypatch, fixture_storage):
     with engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(users)) == 2
         assert connection.scalar(select(func.count()).select_from(reviews)) == 0
+
+
+def test_seed_rejects_self_follow_before_writing(monkeypatch, fixture_storage):
+    engine = memory_engine()
+    monkeypatch.setattr(seed_module, "engine", engine)
+    monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
+    monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
+    monkeypatch.setattr(
+        seed_module,
+        "USER_FOLLOWS",
+        ((DEMO_USERS[0].id, DEMO_USERS[0].id),),
+    )
+
+    with pytest.raises(seed_module.FixtureIdentityConflictError, match="self-follow"):
+        seed_module.seed()
+    assert fixture_storage.stored == []
+    with engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(users)) == 0
+        assert connection.scalar(select(func.count()).select_from(user_follows)) == 0
+
+
+def test_user_follow_constraints_reject_self_follows_and_duplicates():
+    engine = memory_engine()
+    first_id = uuid4()
+    second_id = uuid4()
+
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(user_follows.insert().values(follower_id=first_id, followed_id=first_id))
+
+    with engine.begin() as connection:
+        connection.execute(
+            user_follows.insert().values(follower_id=first_id, followed_id=second_id)
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(
+            user_follows.insert().values(follower_id=first_id, followed_id=second_id)
+        )

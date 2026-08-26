@@ -257,6 +257,11 @@ de seguimiento, reseña y fotografía. Si UUID e identidad natural apuntan a dos
 filas distintas, aborta la transacción en vez de crear referencias ambiguas o
 huérfanas.
 
+Los seguimientos usuario→usuario usan una clave primaria compuesta para impedir
+duplicados y el `CHECK ck_user_follows_not_self` para impedir auto-seguimientos.
+La misma restricción está declarada en la metadata SQLAlchemy y en Alembic; el
+seed también rechaza el auto-seguimiento antes de intentar escribirlo.
+
 Las fixtures de feed añaden seguimientos, reseñas y fotografías con UUID y
 fechas estables. Los WebP viven en `app/db/assets/reviews/`, pero el seed los
 abre como streams y llama a `MediaStorage.store`; `photos.storage_key` siempre

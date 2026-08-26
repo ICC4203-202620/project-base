@@ -1,5 +1,6 @@
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Column,
     DateTime,
     Index,
@@ -49,6 +50,7 @@ user_follows = Table(
     metadata,
     Column("follower_id", Uuid(as_uuid=True), primary_key=True),
     Column("followed_id", Uuid(as_uuid=True), primary_key=True),
+    CheckConstraint("follower_id <> followed_id", name="ck_user_follows_not_self"),
 )
 Index("ix_user_follows_followed_id", user_follows.c.followed_id)
 

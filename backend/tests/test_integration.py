@@ -36,15 +36,23 @@ def require_test_database():
 
 
 def test_migrations_create_application_tables():
-    assert inspect(engine).has_table("users")
-    assert inspect(engine).has_table("auth_sessions")
-    assert inspect(engine).has_table("restaurants")
-    assert inspect(engine).has_table("cuisine_styles")
-    assert inspect(engine).has_table("restaurant_cuisine_styles")
-    assert inspect(engine).has_table("photos")
-    assert inspect(engine).has_table("reviews")
-    assert inspect(engine).has_table("user_follows")
-    assert inspect(engine).has_table("restaurant_follows")
+    inspector = inspect(engine)
+    assert inspector.has_table("users")
+    assert inspector.has_table("auth_sessions")
+    assert inspector.has_table("restaurants")
+    assert inspector.has_table("cuisine_styles")
+    assert inspector.has_table("restaurant_cuisine_styles")
+    assert inspector.has_table("photos")
+    assert inspector.has_table("reviews")
+    assert inspector.has_table("user_follows")
+    assert inspector.has_table("restaurant_follows")
+    assert inspector.get_pk_constraint("user_follows")["constrained_columns"] == [
+        "follower_id",
+        "followed_id",
+    ]
+    assert {
+        constraint["name"] for constraint in inspector.get_check_constraints("user_follows")
+    } == {"ck_user_follows_not_self"}
 
 
 def test_seeded_user_is_persisted():
