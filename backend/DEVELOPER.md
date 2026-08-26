@@ -251,6 +251,12 @@ ni reemplaza asociaciones: reiniciar Compose conserva cambios de los
 estudiantes. `Settings` rechaza esta opción en producción y Lambda no ejecuta
 el entrypoint local, por lo que las fixtures no forman parte del bootstrap AWS.
 
+Cuando una fixture coincide por correo o identidad con una fila que usa otro
+UUID, el seed conserva esa fila y mapea hacia su UUID persistido las relaciones
+de seguimiento, reseña y fotografía. Si UUID e identidad natural apuntan a dos
+filas distintas, aborta la transacción en vez de crear referencias ambiguas o
+huérfanas.
+
 Las fixtures de feed añaden seguimientos, reseñas y fotografías con UUID y
 fechas estables. Los WebP viven en `app/db/assets/reviews/`, pero el seed los
 abre como streams y llama a `MediaStorage.store`; `photos.storage_key` siempre

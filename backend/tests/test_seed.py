@@ -59,6 +59,34 @@ def memory_engine():
     return engine
 
 
+def assert_feed_fixture_references_exist(connection):
+    user_ids = set(connection.scalars(select(users.c.id)))
+    restaurant_ids = set(connection.scalars(select(restaurants.c.id)))
+    photo_ids = set(connection.scalars(select(photos.c.id)))
+
+    for follower_id, followed_id in connection.execute(
+        select(user_follows.c.follower_id, user_follows.c.followed_id)
+    ):
+        assert follower_id in user_ids
+        assert followed_id in user_ids
+    for user_id, restaurant_id in connection.execute(
+        select(restaurant_follows.c.user_id, restaurant_follows.c.restaurant_id)
+    ):
+        assert user_id in user_ids
+        assert restaurant_id in restaurant_ids
+    for author_id, restaurant_id, photo_id in connection.execute(
+        select(reviews.c.author_id, reviews.c.restaurant_id, reviews.c.photo_id)
+    ):
+        assert author_id in user_ids
+        assert restaurant_id in restaurant_ids
+        assert photo_id in photo_ids
+    for author_id, restaurant_id in connection.execute(
+        select(photos.c.author_id, photos.c.restaurant_id)
+    ):
+        assert author_id in user_ids
+        assert restaurant_id in restaurant_ids
+
+
 def test_seed_is_disabled_by_default(monkeypatch):
     engine = memory_engine()
     monkeypatch.setattr(seed_module, "engine", engine)
@@ -97,6 +125,7 @@ def test_seed_creates_all_demo_data_once(monkeypatch, fixture_storage):
         assert connection.scalar(
             select(func.count()).select_from(restaurant_cuisine_styles)
         ) == sum(len(fixture.cuisine_styles) for fixture in RESTAURANTS)
+        assert_feed_fixture_references_exist(connection)
 
 
 def test_seed_does_not_overwrite_modified_fixture(monkeypatch):
@@ -144,7 +173,7 @@ def test_seed_does_not_overwrite_modified_demo_user(monkeypatch):
         ).one() == ("Perfil editado por estudiante", "changed-password-hash")
 
 
-def test_seed_skips_users_that_collide_by_id_or_email(monkeypatch):
+def test_seed_maps_user_id_and_email_collisions_to_persisted_ids(monkeypatch, fixture_storage):
     engine = memory_engine()
     monkeypatch.setattr(seed_module, "engine", engine)
     monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
@@ -156,6 +185,7 @@ def test_seed_skips_users_that_collide_by_id_or_email(monkeypatch):
     )
 
     first, second = DEMO_USERS[:2]
+    second_persisted_id = uuid4()
     with engine.begin() as connection:
         connection.execute(
             users.insert().values(
@@ -169,7 +199,7 @@ def test_seed_skips_users_that_collide_by_id_or_email(monkeypatch):
         )
         connection.execute(
             users.insert().values(
-                id=uuid4(),
+                id=second_persisted_id,
                 email=second.email,
                 handle="@existingemail",
                 name="Existing email",
@@ -179,6 +209,8 @@ def test_seed_skips_users_that_collide_by_id_or_email(monkeypatch):
         )
 
     assert seed_module.seed() is True
+    assert seed_module.seed() is False
+    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES)
     assert hashed_passwords == [DEMO_USERS[2].password]
     with engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(users)) == len(DEMO_USERS)
@@ -190,3 +222,94 @@ def test_seed_skips_users_that_collide_by_id_or_email(monkeypatch):
             connection.scalar(select(users.c.handle).where(users.c.email == second.email))
             == "@existingemail"
         )
+        assert connection.execute(
+            select(user_follows.c.follower_id, user_follows.c.followed_id)
+        ).one() == (first.id, second_persisted_id)
+        followed_review_authors = set(
+            connection.scalars(
+                select(reviews.c.author_id).where(
+                    reviews.c.id.in_((REVIEW_FIXTURES[0].id, REVIEW_FIXTURES[1].id))
+                )
+            )
+        )
+        assert followed_review_authors == {second_persisted_id}
+        assert_feed_fixture_references_exist(connection)
+
+
+def test_seed_maps_restaurant_identity_collision_to_persisted_id(monkeypatch, fixture_storage):
+    engine = memory_engine()
+    monkeypatch.setattr(seed_module, "engine", engine)
+    monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
+    monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
+
+    fixture = RESTAURANTS[0]
+    persisted_id = uuid4()
+    with engine.begin() as connection:
+        connection.execute(
+            restaurants.insert().values(
+                id=persisted_id,
+                name=fixture.name,
+                normalized_name=seed_module.normalize_restaurant_text(fixture.name),
+                address=fixture.address,
+                normalized_address=seed_module.normalize_restaurant_text(fixture.address),
+                identity_key=seed_module.restaurant_identity_key(fixture.name, fixture.address),
+                latitude=fixture.latitude,
+                longitude=fixture.longitude,
+            )
+        )
+
+    assert seed_module.seed() is True
+    assert seed_module.seed() is False
+    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES)
+    with engine.connect() as connection:
+        assert connection.execute(
+            select(restaurant_follows.c.user_id, restaurant_follows.c.restaurant_id)
+        ).one() == (DEMO_USERS[0].id, persisted_id)
+        mapped_review_restaurants = set(
+            connection.scalars(
+                select(reviews.c.restaurant_id).where(
+                    reviews.c.id.in_(
+                        (REVIEW_FIXTURES[0].id, REVIEW_FIXTURES[2].id, REVIEW_FIXTURES[3].id)
+                    )
+                )
+            )
+        )
+        assert mapped_review_restaurants == {persisted_id}
+        assert_feed_fixture_references_exist(connection)
+
+
+def test_seed_rejects_ambiguous_user_identity(monkeypatch, fixture_storage):
+    engine = memory_engine()
+    monkeypatch.setattr(seed_module, "engine", engine)
+    monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
+
+    fixture = DEMO_USERS[0]
+    with engine.begin() as connection:
+        connection.execute(
+            users.insert(),
+            [
+                {
+                    "id": fixture.id,
+                    "email": "uuid-owner@example.com",
+                    "handle": "@uuidowner",
+                    "name": "UUID owner",
+                    "nationality": "Chile",
+                    "password_hash": "existing",
+                },
+                {
+                    "id": uuid4(),
+                    "email": fixture.email,
+                    "handle": "@emailowner",
+                    "name": "Email owner",
+                    "nationality": "Chile",
+                    "password_hash": "existing",
+                },
+            ],
+        )
+
+    with pytest.raises(seed_module.FixtureIdentityConflictError):
+        seed_module.seed()
+    assert fixture_storage.stored == []
+    with engine.connect() as connection:
+        assert connection.scalar(select(func.count()).select_from(users)) == 2
+        assert connection.scalar(select(func.count()).select_from(reviews)) == 0
