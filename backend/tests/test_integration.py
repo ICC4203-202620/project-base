@@ -12,8 +12,15 @@ from sqlalchemy import func, inspect, select, update
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db import seed as seed_module
-from app.db.fixtures import CUISINE_STYLES, DEMO_USERS, RESTAURANTS
-from app.db.schema import auth_sessions, cuisine_styles, photos, restaurants, reviews, users
+from app.db.fixtures import CUISINE_STYLES, DEMO_USERS, RESTAURANTS, REVIEW_FIXTURES
+from app.db.schema import (
+    auth_sessions,
+    cuisine_styles,
+    photos,
+    restaurants,
+    reviews,
+    users,
+)
 from app.db.session import engine
 from app.main import app
 from app.media.storage import LocalMediaStorage, get_media_storage
@@ -29,13 +36,23 @@ def require_test_database():
 
 
 def test_migrations_create_application_tables():
-    assert inspect(engine).has_table("users")
-    assert inspect(engine).has_table("auth_sessions")
-    assert inspect(engine).has_table("restaurants")
-    assert inspect(engine).has_table("cuisine_styles")
-    assert inspect(engine).has_table("restaurant_cuisine_styles")
-    assert inspect(engine).has_table("photos")
-    assert inspect(engine).has_table("reviews")
+    inspector = inspect(engine)
+    assert inspector.has_table("users")
+    assert inspector.has_table("auth_sessions")
+    assert inspector.has_table("restaurants")
+    assert inspector.has_table("cuisine_styles")
+    assert inspector.has_table("restaurant_cuisine_styles")
+    assert inspector.has_table("photos")
+    assert inspector.has_table("reviews")
+    assert inspector.has_table("user_follows")
+    assert inspector.has_table("restaurant_follows")
+    assert inspector.get_pk_constraint("user_follows")["constrained_columns"] == [
+        "follower_id",
+        "followed_id",
+    ]
+    assert {
+        constraint["name"] for constraint in inspector.get_check_constraints("user_follows")
+    } == {"ck_user_follows_not_self"}
 
 
 def test_seeded_user_is_persisted():
@@ -138,7 +155,7 @@ def test_demo_users_have_independent_sessions_and_revocations():
     sender = TestClient(app)
     receiver = TestClient(app)
 
-    for client, fixture in zip((sender, receiver), DEMO_USERS, strict=True):
+    for client, fixture in zip((sender, receiver), DEMO_USERS[:2], strict=True):
         response = client.post(
             "/api/v1/auth/login",
             headers={"Origin": "http://testserver"},
@@ -214,12 +231,12 @@ def test_expired_and_unknown_sessions_are_rejected():
     assert mismatched_client.get("/api/v1/auth/session").status_code == 401
 
 
-def authenticated_client() -> TestClient:
+def authenticated_client(email="demo@example.com", password="demo-password") -> TestClient:
     client = TestClient(app)
     response = client.post(
         "/api/v1/auth/login",
         headers={"Origin": "http://testserver"},
-        json={"email": "demo@example.com", "password": "demo-password"},
+        json={"email": email, "password": password},
     )
     assert response.status_code == 204
     return client
@@ -358,6 +375,39 @@ def test_review_upload_persists_metadata_and_local_photo(tmp_path):
         assert downloaded.content == image.getvalue()
     finally:
         app.dependency_overrides.clear()
+
+
+def test_seeded_feed_and_review_detail_work_with_postgresql():
+    client = authenticated_client()
+
+    response = client.get("/api/v1/feed?limit=50")
+    assert response.status_code == 200
+    review_ids = [item["review"]["id"] for item in response.json()["items"]]
+    fixture_ids = [
+        review_id
+        for review_id in review_ids
+        if review_id in {str(fixture.id) for fixture in REVIEW_FIXTURES}
+    ]
+    assert fixture_ids == [
+        str(REVIEW_FIXTURES[0].id),
+        str(REVIEW_FIXTURES[1].id),
+        str(REVIEW_FIXTURES[3].id),
+    ]
+    assert str(REVIEW_FIXTURES[2].id) not in review_ids
+
+    private = client.get(f"/api/v1/reviews/{REVIEW_FIXTURES[2].id}")
+    assert private.status_code == 200
+    assert private.json()["visibility"] == "private"
+    photo = client.get(private.json()["photo"]["content_url"])
+    assert photo.status_code == 200
+    assert photo.headers["content-type"] == "image/webp"
+
+    other_client = authenticated_client("demo2@example.com")
+    assert other_client.get(f"/api/v1/reviews/{REVIEW_FIXTURES[2].id}").status_code == 404
+    assert other_client.get(f"/api/v1/reviews/{uuid4()}").status_code == 404
+
+    empty_client = authenticated_client("empty@example.com")
+    assert empty_client.get("/api/v1/feed").json() == {"items": [], "next_cursor": None}
 
 
 def test_anonymous_restaurant_requests_do_not_modify_data():

@@ -1,6 +1,7 @@
 """Deterministic teaching data used only by the explicitly enabled local seed."""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -32,6 +33,20 @@ class RestaurantFixture:
     cuisine_styles: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class ReviewFixture:
+    id: UUID
+    photo_id: UUID
+    author_id: UUID
+    restaurant_id: UUID
+    asset_name: str
+    content_type: str
+    dish_name: str
+    text: str
+    visibility: str
+    created_at: datetime
+
+
 DEMO_USERS = (
     UserFixture(
         UUID("00000000-0000-4000-8000-000000000001"),
@@ -48,6 +63,77 @@ DEMO_USERS = (
         "Demo Foodie Dos",
         "Argentina",
         "demo-password",
+    ),
+    UserFixture(
+        UUID("00000000-0000-4000-8000-000000000003"),
+        "empty@example.com",
+        "@empty",
+        "Empty Feed",
+        "Perú",
+        "demo-password",
+    ),
+)
+
+USER_FOLLOWS = (
+    (
+        UUID("00000000-0000-4000-8000-000000000001"),
+        UUID("00000000-0000-4000-8000-000000000002"),
+    ),
+)
+RESTAURANT_FOLLOWS = (
+    (
+        UUID("00000000-0000-4000-8000-000000000001"),
+        UUID("20000000-0000-4000-8000-000000000001"),
+    ),
+)
+REVIEW_FIXTURES = (
+    ReviewFixture(
+        UUID("30000000-0000-4000-8000-000000000001"),
+        UUID("40000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "pastel-de-choclo.webp",
+        "image/webp",
+        "Pastel de choclo",
+        "Reseña pública visible por ambos seguimientos.",
+        "public",
+        datetime(2026, 8, 20, 12, tzinfo=UTC),
+    ),
+    ReviewFixture(
+        UUID("30000000-0000-4000-8000-000000000002"),
+        UUID("40000000-0000-4000-8000-000000000002"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000002"),
+        "ceviche.webp",
+        "image/webp",
+        "Ceviche",
+        "Reseña pública visible por autor seguido.",
+        "public",
+        datetime(2026, 8, 19, 12, tzinfo=UTC),
+    ),
+    ReviewFixture(
+        UUID("30000000-0000-4000-8000-000000000003"),
+        UUID("40000000-0000-4000-8000-000000000003"),
+        DEMO_USERS[0].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "sopaipillas.webp",
+        "image/webp",
+        "Sopaipillas",
+        "Reseña privada docente.",
+        "private",
+        datetime(2026, 8, 18, 12, tzinfo=UTC),
+    ),
+    ReviewFixture(
+        UUID("30000000-0000-4000-8000-000000000004"),
+        UUID("40000000-0000-4000-8000-000000000004"),
+        DEMO_USERS[2].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "sopaipillas.webp",
+        "image/webp",
+        "Sopaipillas con pebre",
+        "Reseña pública visible sólo por restaurante seguido.",
+        "public",
+        datetime(2026, 8, 18, 18, tzinfo=UTC),
     ),
 )
 

@@ -239,7 +239,7 @@ antes de reutilizar el CRUD en un despliegue real.
 
 ### Fixtures y seed
 
-`app/db/fixtures.py` declara dos usuarios docentes, ocho estilos y diez
+`app/db/fixtures.py` declara tres usuarios docentes, ocho estilos y diez
 restaurantes ficticios con UUID estables. `app/db/seed.py` contiene la
 inserción. Separar datos y mecanismo hace visible qué contenido es docente y
 permite probar la idempotencia sin mezclarlo con el runtime del API.
@@ -250,6 +250,24 @@ UUID, slug e identidad antes de insertar. Nunca actualiza una fila ya existente
 ni reemplaza asociaciones: reiniciar Compose conserva cambios de los
 estudiantes. `Settings` rechaza esta opción en producción y Lambda no ejecuta
 el entrypoint local, por lo que las fixtures no forman parte del bootstrap AWS.
+
+Cuando una fixture coincide por correo o identidad con una fila que usa otro
+UUID, el seed conserva esa fila y mapea hacia su UUID persistido las relaciones
+de seguimiento, reseña y fotografía. Si UUID e identidad natural apuntan a dos
+filas distintas, aborta la transacción en vez de crear referencias ambiguas o
+huérfanas.
+
+Los seguimientos usuario→usuario usan una clave primaria compuesta para impedir
+duplicados y el `CHECK ck_user_follows_not_self` para impedir auto-seguimientos.
+La misma restricción está declarada en la metadata SQLAlchemy y en Alembic; el
+seed también rechaza el auto-seguimiento antes de intentar escribirlo.
+
+Las fixtures de feed añaden seguimientos, reseñas y fotografías con UUID y
+fechas estables. Los WebP viven en `app/db/assets/reviews/`, pero el seed los
+abre como streams y llama a `MediaStorage.store`; `photos.storage_key` siempre
+recibe la clave opaca que entregue el proveedor. Si la transacción SQL falla,
+el seed elimina los objetos que alcanzó a crear. Reejecutarlo no sobrescribe
+filas ni vuelve a cargar las fotografías ya asociadas a una reseña fixture.
 
 ## Reseñas y almacenamiento de fotografías
 
@@ -263,8 +281,22 @@ La creación separa tres representaciones que no deben confundirse:
 La base no conoce paths físicos ni URLs prefirmadas. `Photo.content_url` deriva
 siempre de su UUID como `/api/v1/photos/{id}/content`. Esa ruta vuelve a
 autorizar la solicitud y luego responde con `FileResponse` en local o con una
-redirección 307 de corta duración en S3. Por eso las respuestas del futuro feed
+redirección 307 de corta duración en S3. Por eso las respuestas del feed
 pueden ser estables aunque cambie el proveedor.
+
+### Feed de reseñas
+
+`app/services/feed.py` contiene consultas sin dependencia de FastAPI. Una sola
+consulta une reseñas, autor, restaurante y foto, y filtra la actividad pública
+por seguimiento de autor o restaurante. La condición es una unión lógica, no
+dos listas concatenadas, por lo que una coincidencia doble no se duplica.
+Antes de limitar, ordena por `(created_at, id)` descendente; el cursor opaco
+codifica esa misma pareja y evita los problemas de offset si se agregan nuevas
+reseñas entre páginas.
+
+El detalle usa la misma representación, permite cualquier reseña pública y
+permite una privada sólo a su autor. La ausencia y la falta de permiso se
+traducen ambas a `404`; los errores SQL se traducen a `503` en el router.
 
 `app/media/storage.py` declara el protocolo `MediaStorage`: `store`, `resolve`
 y `delete`. Los casos de uso y routers reciben ese contrato mediante una
@@ -298,9 +330,10 @@ se registra el incidente sin ocultar la falla original. Una reconciliación
 periódica de huérfanos sería la evolución apropiada para producción.
 
 El contrato de creación usa `multipart/form-data` y responde una reseña con
-exactamente una fotografía pública. Rating, comentarios y el endpoint de
-detalle/feed pertenecen a evoluciones posteriores. El header `Location` ya
-reserva `/api/v1/reviews/{id}` para ese recurso de detalle.
+exactamente una fotografía pública. Rating y comentarios pertenecen a
+evoluciones posteriores. El header `Location` apunta a
+`/api/v1/reviews/{id}`, implementado por el router de feed como recurso de
+detalle.
 
 ## Configuración
 

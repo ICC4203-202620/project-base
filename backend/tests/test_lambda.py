@@ -11,6 +11,7 @@ from app.api import auth as auth_api
 from app.api.dependencies import get_current_session
 from app.main import app, handler
 from app.media.storage import get_media_storage
+from app.services import feed as feed_service
 from app.services import restaurants as restaurant_service
 from app.services import reviews as review_service
 from app.services.auth import AuthenticatedSession, IssuedSession
@@ -248,3 +249,61 @@ def test_lambda_handler_parses_multipart_review_upload(monkeypatch):
     assert json.loads(response["body"])["id"] == str(review.id)
     assert received["author_id"] == session.user_id
     assert received["declared_content_type"] == "image/png"
+
+
+def test_lambda_handler_serves_feed_and_review_detail(monkeypatch):
+    session = AuthenticatedSession(
+        id=uuid4(),
+        user_id=uuid4(),
+        email="demo@example.com",
+        handle="@demo",
+        name="Demo Foodie",
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
+    )
+    timestamp = datetime(2026, 8, 25, 12, tzinfo=UTC)
+    review_id = uuid4()
+    review = {
+        "id": review_id,
+        "dish_name": "Ceviche",
+        "text": "Muy fresco",
+        "visibility": "public",
+        "author": {"id": session.user_id, "handle": session.handle, "name": session.name},
+        "restaurant": {"id": uuid4(), "name": "Puerto Lima", "address": "Santiago"},
+        "photo": {
+            "id": uuid4(),
+            "content_type": "image/webp",
+            "content_url": f"/api/v1/photos/{uuid4()}/content",
+        },
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }
+    monkeypatch.setattr(
+        feed_service,
+        "get_feed",
+        lambda viewer_id, **kwargs: {
+            "items": [{"type": "review", "occurred_at": timestamp, "review": review}],
+            "next_cursor": None,
+        },
+    )
+    monkeypatch.setattr(
+        feed_service,
+        "get_review",
+        lambda requested_id, **kwargs: review,
+    )
+    app.dependency_overrides[get_current_session] = lambda: session
+    try:
+        feed_response = handler(
+            api_gateway_event("GET", "/api/v1/feed", query_string="limit=5"),
+            LambdaContext(),
+        )
+        detail_response = handler(
+            api_gateway_event("GET", f"/api/v1/reviews/{review_id}"),
+            LambdaContext(),
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert feed_response["statusCode"] == 200
+    assert json.loads(feed_response["body"])["items"][0]["review"]["id"] == str(review_id)
+    assert detail_response["statusCode"] == 200
+    assert json.loads(detail_response["body"])["id"] == str(review_id)
