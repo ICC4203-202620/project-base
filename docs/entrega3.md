@@ -101,6 +101,16 @@ Tres advertencias sobre este procedimiento:
 
 El código base no modifica `frontend/public/`, el service worker, el manifest, los iconos ni los módulos de push y de almacenamiento offline. Ese código es del grupo y llega intacto a esta entrega.
 
+### Cambios de contrato en la API
+
+Git resuelve los conflictos de texto; los cambios de contrato no aparecen como conflicto y hay que buscarlos. En esta actualización hay uno:
+
+`GET /api/v1/restaurants` devolvía un arreglo y paginaba con `limit` y `offset`. Ahora devuelve `{ items, next_cursor }` y acepta `q` para buscar por nombre y `cursor` para paginar. El código del esqueleto que consumía la forma anterior viene actualizado en la misma mezcla, pero si el grupo escribió su propio consumo, romperá con un error de iteración sobre un objeto.
+
+El cambio es deliberado. La paginación por `offset` repite y salta elementos cuando otros usuarios agregan restaurantes mientras alguien recorre la colección, y esta entrega la recorre en la búsqueda, en el mapa y en el perfil. El feed ya usaba cursor por la misma razón.
+
+El contrato vigente siempre es el que expone `/docs` en la instalación que el grupo está ejecutando. Conviene revisarlo después de mezclar, antes de escribir el cliente.
+
 ## Continuidad con la entrega 2
 
 La interfaz se reescribe; la infraestructura de PWA, no. Al terminar la migración a React deben seguir funcionando, sin excepción:
