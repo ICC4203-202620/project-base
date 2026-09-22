@@ -28,14 +28,15 @@ def test_session_expiration_must_be_positive():
         Settings(jwt_expiration_minutes=0)
 
 
-def test_production_rejects_demo_seed():
-    with pytest.raises(ValidationError, match="SEED_DEMO_DATA"):
-        Settings(
-            environment="production",
-            jwt_secret="injected-production-secret",
-            cookie_secure=True,
-            seed_demo_data=True,
-        )
+def test_production_allows_demo_seed():
+    config = Settings(
+        environment="production",
+        jwt_secret="injected-production-secret",
+        cookie_secure=True,
+        seed_demo_data=True,
+    )
+
+    assert config.seed_demo_data is True
 
 
 def test_s3_media_storage_requires_bucket_and_valid_expiration():

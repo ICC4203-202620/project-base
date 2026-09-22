@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     jwt_expiration_minutes: int = Field(default=10080, ge=1)
     cookie_secure: bool = False
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    # Course deployments publish demo content so a reviewer can walk the
+    # application without registering. The seed only inserts missing fixtures,
+    # so it stays available outside development.
     seed_demo_data: bool = False
     media_storage_backend: MediaStorageBackend = MediaStorageBackend.LOCAL
     media_local_path: Path = Path("var/media")
@@ -70,8 +73,6 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET must be supplied by the production platform")
             if not self.cookie_secure:
                 raise ValueError("COOKIE_SECURE must be enabled in production")
-            if self.seed_demo_data:
-                raise ValueError("SEED_DEMO_DATA must be disabled in production")
 
         return self
 

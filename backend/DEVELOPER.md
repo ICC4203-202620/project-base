@@ -248,8 +248,11 @@ permite probar la idempotencia sin mezclarlo con el runtime del API.
 usuarios, el seed busca tanto UUID como correo; para estilos y restaurantes,
 UUID, slug e identidad antes de insertar. Nunca actualiza una fila ya existente
 ni reemplaza asociaciones: reiniciar Compose conserva cambios de los
-estudiantes. `Settings` rechaza esta opción en producción y Lambda no ejecuta
-el entrypoint local, por lo que las fixtures no forman parte del bootstrap AWS.
+estudiantes. La opción sigue disponible con `ENVIRONMENT=production`, porque el
+despliegue del curso publica contenido de demostración para que el ayudante
+recorra la aplicación sin registrarse; véase [DEPLOY.md](../DEPLOY.md). Lambda
+no ejecuta el entrypoint local, por lo que las fixtures no forman parte del
+bootstrap AWS.
 
 Cuando una fixture coincide por correo o identidad con una fila que usa otro
 UUID, el seed conserva esa fila y mapea hacia su UUID persistido las relaciones
