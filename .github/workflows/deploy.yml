@@ -1,0 +1,159 @@
+# Despliegue de la aplicación del grupo bajo 4203.iccuandes.org.
+#
+# El runner es una máquina del curso registrada en la organización con la
+# etiqueta runner-4203. El workflow construye las imágenes y levanta el stack
+# de docker-compose.deploy.yml con un nombre de proyecto propio del grupo. El
+# nginx del servidor, configurado fuera de este repositorio, termina TLS con el
+# certificado comodín y hace proxy del subdominio del grupo hacia HOST_PORT.
+#
+# La configuración se lee de variables y secretos del repositorio. La guía
+# DEPLOY.md, en la raíz del repositorio, explica cada uno y cómo definirlos.
+
+name: Desplegar en 4203.iccuandes.org
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, runner-4203]
+    timeout-minutes: 30
+
+    env:
+      GROUP_ID: ${{ vars.GROUP_ID }}
+      HOST_PORT: ${{ vars.HOST_PORT }}
+      PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@v4
+
+      - name: Comprobar la configuración del repositorio
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+        run: |
+          missing=""
+          [ -n "$GROUP_ID" ] || missing="$missing GROUP_ID"
+          [ -n "$HOST_PORT" ] || missing="$missing HOST_PORT"
+          [ -n "$PUBLIC_ORIGIN" ] || missing="$missing PUBLIC_ORIGIN"
+          [ -n "$DATABASE_URL" ] || missing="$missing DATABASE_URL"
+          [ -n "$JWT_SECRET" ] || missing="$missing JWT_SECRET"
+          if [ -n "$missing" ]; then
+            echo "Faltan variables o secretos del repositorio:$missing" >&2
+            echo "Revisa la sección «Variables y secretos» de DEPLOY.md." >&2
+            exit 1
+          fi
+          case "$PUBLIC_ORIGIN" in
+            https://*.4203.iccuandes.org) ;;
+            *) echo "PUBLIC_ORIGIN debe ser https://<subdominio>.4203.iccuandes.org" >&2; exit 1 ;;
+          esac
+          # Estos no impiden desplegar, pero dejan funciones fuera de servicio.
+          if [ -z "$VAPID_PUBLIC_KEY" ] || [ -z "$VAPID_PRIVATE_KEY" ]; then
+            echo "::warning::Faltan las claves VAPID; las notificaciones no funcionarán."
+          fi
+          if [ -z "$VITE_GOOGLE_MAPS_API_KEY" ]; then
+            echo "::warning::Falta VITE_GOOGLE_MAPS_API_KEY; el mapa no cargará."
+          fi
+
+      - name: Componer el entorno del backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          VAPID_PUBLIC_KEY: ${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT: ${{ secrets.VAPID_SUBJECT }}
+          BACKEND_ENV: ${{ secrets.BACKEND_ENV }}
+          SEED_DEMO_DATA: ${{ vars.SEED_DEMO_DATA || 'true' }}
+        run: |
+          umask 077
+          {
+            printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+            printf 'JWT_SECRET=%s\n' "$JWT_SECRET"
+            printf 'CORS_ORIGINS=%s\n' "$PUBLIC_ORIGIN"
+            printf 'SEED_DEMO_DATA=%s\n' "$SEED_DEMO_DATA"
+          } > .env.deploy
+          # Claves de Web Push. Sólo se escribe la que esté definida: una línea
+          # con valor vacío declara la variable en blanco, y el backend no
+          # distingue eso de un valor mal copiado.
+          if [ -n "$VAPID_PUBLIC_KEY" ]; then
+            printf 'VAPID_PUBLIC_KEY=%s\n' "$VAPID_PUBLIC_KEY" >> .env.deploy
+          fi
+          if [ -n "$VAPID_PRIVATE_KEY" ]; then
+            printf 'VAPID_PRIVATE_KEY=%s\n' "$VAPID_PRIVATE_KEY" >> .env.deploy
+          fi
+          if [ -n "$VAPID_SUBJECT" ]; then
+            printf 'VAPID_SUBJECT=%s\n' "$VAPID_SUBJECT" >> .env.deploy
+          fi
+          # Cualquier otra variable del grupo. Se agrega al final para que
+          # pueda redefinir un valor anterior.
+          if [ -n "$BACKEND_ENV" ]; then
+            printf '%s\n' "$BACKEND_ENV" >> .env.deploy
+          fi
+
+      - name: Componer el entorno de compilación del frontend
+        env:
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+          FRONTEND_ENV: ${{ secrets.FRONTEND_ENV }}
+        run: |
+          umask 077
+          : > frontend/.env.production
+          if [ -n "$VITE_GOOGLE_MAPS_API_KEY" ]; then
+            printf 'VITE_GOOGLE_MAPS_API_KEY=%s\n' "$VITE_GOOGLE_MAPS_API_KEY" \
+              >> frontend/.env.production
+          fi
+          if [ -n "$FRONTEND_ENV" ]; then
+            printf '%s\n' "$FRONTEND_ENV" >> frontend/.env.production
+          fi
+
+      - name: Construir y levantar el stack
+        run: |
+          docker compose \
+            --project-name "foodie-grupo-${GROUP_ID}" \
+            --file docker-compose.deploy.yml \
+            up --detach --build --remove-orphans --wait --wait-timeout 300
+
+      - name: Comprobar que el despliegue responde
+        run: |
+          curl --fail --silent --show-error \
+            --retry 10 --retry-delay 3 --retry-all-errors \
+            "http://127.0.0.1:${HOST_PORT}/healthz"
+          echo
+          curl --fail --silent --show-error --output /dev/null \
+            "http://127.0.0.1:${HOST_PORT}/"
+          echo "Despliegue disponible en ${PUBLIC_ORIGIN}"
+
+      - name: Informar el estado de los contenedores
+        if: always()
+        run: |
+          docker compose \
+            --project-name "foodie-grupo-${GROUP_ID}" \
+            --file docker-compose.deploy.yml \
+            ps
+
+      - name: Mostrar los registros del backend si el despliegue falló
+        if: failure()
+        run: |
+          docker compose \
+            --project-name "foodie-grupo-${GROUP_ID}" \
+            --file docker-compose.deploy.yml \
+            logs --tail 200 backend gateway
+
+      - name: Borrar los archivos de entorno del runner
+        if: always()
+        run: |
+          rm -f .env.deploy frontend/.env.production
+
+      - name: Liberar imágenes sin referencias
+        if: always()
+        run: docker image prune --force

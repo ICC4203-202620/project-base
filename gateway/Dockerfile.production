@@ -1,0 +1,17 @@
+# Imagen de despliegue: construye el frontend y lo sirve con nginx, que además
+# hace proxy de la API hacia el backend. El contexto de construcción es la raíz
+# del repositorio, porque esta imagen necesita frontend/ y gateway/.
+
+FROM node:22-alpine AS build
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+# El workflow escribe frontend/.env.production con las variables VITE_ del
+# grupo antes de construir. Vite las resuelve en este paso y quedan dentro del
+# bundle, de modo que no deben contener secretos.
+RUN npm run build
+
+FROM nginx:1.29-alpine
+COPY gateway/production.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/dist /usr/share/nginx/html

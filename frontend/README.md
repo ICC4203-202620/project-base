@@ -152,7 +152,8 @@ La misma convención sirve para las siguientes etapas:
 
 - **Entrega 3:** nginx sirve el build estático de React en `/` y mantiene el
   proxy `/api/*` hacia el backend del monolito Docker, bajo el subdominio del
-  grupo en `4203.iccuandes.org`.
+  grupo en `4203.iccuandes.org`. El procedimiento está en
+  [DEPLOY.md](../DEPLOY.md).
 - **Entrega 4:** CloudFront usa el build estático como origen predeterminado y
   un comportamiento `/api/*` hacia API Gateway y Lambda. CloudFront permite
   [varios orígenes y routing por path](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/DownloadDistValuesCacheBehavior.html).

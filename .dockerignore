@@ -1,0 +1,24 @@
+# Contexto de construcción para imágenes que se arman desde la raíz del
+# repositorio, hoy sólo gateway/Dockerfile.production. Las imágenes de
+# backend/ y frontend/ usan su propio contexto y su propio .dockerignore.
+.git
+.github
+.env
+.env.*
+!.env.local.example
+certs
+docs
+scripts
+backend
+**/node_modules
+**/dist
+**/coverage
+**/__pycache__
+**/*.egg-info
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
+**/.DS_Store
+
+# El workflow escribe este archivo en el runner; debe llegar al contexto.
+!frontend/.env.production

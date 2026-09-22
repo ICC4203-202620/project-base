@@ -1,0 +1,49 @@
+# Stack de despliegue. A diferencia de docker-compose.yml, no incluye Postgres:
+# la base de datos vive en el servidor del curso, una por grupo, y llega por
+# DATABASE_URL. Tampoco incluye el servidor de desarrollo de Vite: el gateway
+# sirve el build estático del frontend.
+#
+# El workflow de GitHub Actions lo levanta con un nombre de proyecto propio del
+# grupo, de modo que contenedores, imágenes y volúmenes queden separados de los
+# de los demás grupos en el mismo runner.
+
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      # Generado por el workflow a partir de los secretos del repositorio.
+      # Contiene DATABASE_URL, JWT_SECRET y las variables propias del grupo,
+      # entre ellas las de VAPID.
+      - .env.deploy
+    environment:
+      # Estos valores no se delegan al archivo de entorno: definen el modo de
+      # operación del despliegue y config.py los valida.
+      ENVIRONMENT: production
+      COOKIE_SECURE: "true"
+      MEDIA_STORAGE_BACKEND: local
+      MEDIA_LOCAL_PATH: /data/media
+    volumes:
+      - media-data:/data/media
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile.production
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      # Sólo la interfaz de loopback: el nginx del servidor es quien publica
+      # este puerto hacia internet, con TLS y el subdominio del grupo.
+      - "127.0.0.1:${HOST_PORT}:80"
+
+volumes:
+  media-data:
