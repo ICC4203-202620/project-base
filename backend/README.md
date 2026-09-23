@@ -67,8 +67,11 @@ locales comerciales reales.
 
 | Correo | Contraseña | Handle | Uso sugerido |
 | --- | --- | --- | --- |
-| `demo@example.com` | `demo-password` | `@demo` | Emisor o receptor de prueba |
-| `demo2@example.com` | `demo-password` | `@demo2` | Emisor o receptor de prueba |
+| `demo@example.com` | `demo-password` | `demo` | Emisor o receptor de prueba |
+| `demo2@example.com` | `demo-password` | `demo2` | Emisor o receptor de prueba |
+
+El handle se almacena sin arroba y en minúsculas. La arroba es presentación y
+la agrega la interfaz cuando muestra `@demo`.
 
 Estas credenciales son exclusivamente locales y docentes; no son secretos y no
 deben reutilizarse en despliegues reales. Para probar notificaciones, inicia
@@ -79,6 +82,7 @@ El backend ofrece el ciclo de sesión completo:
 
 | Método y path | Resultado |
 | --- | --- |
+| `POST /api/v1/auth/register` | Crea la cuenta, persiste su sesión y entrega la cookie. |
 | `POST /api/v1/auth/login` | Valida credenciales, persiste una sesión y entrega la cookie. |
 | `GET /api/v1/auth/session` | Devuelve la identidad y caducación de la sesión vigente. |
 | `POST /api/v1/auth/logout` | Revoca la sesión actual y elimina la cookie. |
@@ -87,6 +91,38 @@ La cookie `session` contiene un JWT firmado y usa `HttpOnly`, por lo que el
 frontend no puede ni debe leerla. El navegador la envía con `credentials:
 "include"`. Login y logout devuelven `204 No Content`; una consulta sin sesión,
 con un token vencido o con una sesión revocada devuelve `401`.
+
+### Registro de una cuenta
+
+`POST /api/v1/auth/register` es la única ruta de escritura que no requiere
+sesión, aunque sí valida el origen como el resto. Recibe `name`, `email`,
+`handle`, `nationality` y `password`, responde `201` con el mismo cuerpo que
+`GET /api/v1/auth/session` y emite la cookie: quien se registra queda
+autenticado en la misma operación, sin un segundo viaje que obligue al cliente
+a conservar la contraseña.
+
+El servidor normaliza antes de escribir. El handle pierde una arroba inicial y
+pasa a minúsculas, de modo que `@Demo`, `demo` y `DEMO` son el mismo handle, y
+después tiene que calzar con `^[a-z0-9_]{3,30}$`. El correo pasa a minúsculas.
+La nacionalidad es un código ISO 3166-1 alfa-2 y se guarda en mayúsculas.
+
+Un correo o un handle ya tomados responden `409` con el campo en conflicto, de
+modo que el formulario pueda marcarlo:
+
+```json
+{ "detail": { "field": "handle", "message": "Handle already taken" } }
+```
+
+Un formato inválido, una contraseña de menos de doce caracteres o un código de
+país desconocido responden `422`. No existe un endpoint que informe si un
+handle está disponible: sería público, porque el registro lo es, y permitiría
+enumerar los handles de la aplicación sin tener cuenta. El `409` entrega la
+misma información en el momento en que hace falta.
+
+`GET /api/v1/countries` publica el catálogo de nacionalidades —código alfa-2 y
+nombre en español, ordenado por nombre— para que el formulario construya su
+selector sin datos escritos a mano. Es público y cacheable, porque el registro
+lo necesita antes de que exista una sesión.
 
 ### API de restaurantes
 
@@ -197,10 +233,10 @@ y una reseña que coincide por ambos tipos de seguimiento aparece una sola vez.
 reseñas públicas están disponibles para sesiones autenticadas; una privada sólo
 puede verla su autor y para las demás sesiones responde `404`.
 
-El seed local incorpora tres cuentas: `demo@example.com` (`@demo`),
-`demo2@example.com` (`@demo2`) y `empty@example.com` (`@empty`), todas con
-contraseña `demo-password`. `@demo` demuestra feed, deduplicación y detalle;
-`@empty` demuestra una página sin actividad. Las fotos docentes se cargan al
+El seed local incorpora tres cuentas: `demo@example.com` (`demo`),
+`demo2@example.com` (`demo2`) y `empty@example.com` (`empty`), todas con
+contraseña `demo-password`. `demo` demuestra feed, deduplicación y detalle;
+`empty` demuestra una página sin actividad. Las fotos docentes se cargan al
 proveedor local o S3 a través del mismo contrato `MediaStorage` usado por las
 reseñas normales.
 

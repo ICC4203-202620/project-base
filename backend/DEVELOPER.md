@@ -191,6 +191,52 @@ La caducación es absoluta y se representa en tres lugares coordinados:
 La configuración inicial no renueva sesiones ni usa refresh tokens. Varias
 sesiones por usuario son válidas y logout revoca sólo la actual.
 
+### Registro de cuentas
+
+`POST /api/v1/auth/register` es la única escritura pública del API. Conserva
+`require_trusted_origin`, porque lo que la protección evita —que otro sitio
+provoque una escritura con las credenciales del navegador— no depende de que
+exista una sesión.
+
+`register_user` normaliza, hashea y crea la cuenta junto con su sesión en una
+sola transacción. El orden importa: el hash Argon2 se calcula **antes** de
+abrir la transacción, para no sostenerla durante la operación más lenta del
+recorrido y para que un registro rechazado cueste aproximadamente lo mismo que
+uno aceptado.
+
+La normalización vive en el servicio, no en el schema, y el modelo Pydantic la
+invoca desde sus validadores. Así la regla se prueba sin HTTP y la comparten
+las épicas que después buscan por handle:
+
+- `normalize_handle` retira una arroba inicial y baja a minúsculas. La arroba
+  es presentación; almacenarla obligaría a limpiarla en cada comparación.
+- `is_valid_handle` aplica `^[a-z0-9_]{3,30}$` sobre la forma normalizada.
+- `normalize_email` baja a minúsculas.
+
+La unicidad se resuelve normalizando al escribir, sin índice funcional, porque
+Aurora DSQL no los admite. Es la misma estrategia de `normalized_name` en
+restaurantes.
+
+El conflicto se clasifica antes de insertar, con una consulta que busca el
+correo o el handle. Cuando ambos colisionan con filas distintas gana el correo,
+que es la identidad de inicio de sesión y por tanto lo primero que la persona
+tiene que cambiar. Si una inscripción simultánea gana la carrera, la violación
+de unicidad no dice cuál índice falló, de modo que el servicio vuelve a
+preguntar y traduce el resultado; si esa segunda consulta no encuentra
+conflicto, la falla era de otra naturaleza y se traduce a 503.
+
+`app/core/countries.py` declara las nacionalidades como dato del código base y
+no como tabla. Los países cambian poco, una tabla que nadie edita agrega una
+migración y un seed sin agregar una capacidad, y tenerlo en el módulo permite
+que el schema valide un código sin consultar la base. El módulo documenta cómo
+se regeneró la lista y qué códigos de ICU quedaron fuera por no ser
+asignaciones oficiales de ISO 3166-1.
+
+No hay endpoint de disponibilidad de handle. Sería público, porque el registro
+lo es, y daría un oráculo para enumerar los handles de la aplicación sin tener
+cuenta; el `409` del registro entrega la misma información en el momento en que
+el formulario la necesita.
+
 ### Cookies y CSRF
 
 `HttpOnly` evita que JavaScript lea el JWT; `Secure` restringe su transporte a
@@ -240,7 +286,12 @@ antes de reutilizar el CRUD en un despliegue real.
 ### Fixtures y seed
 
 `app/db/fixtures.py` declara tres usuarios docentes, ocho estilos y diez
-restaurantes ficticios con UUID estables. `app/db/seed.py` contiene la
+restaurantes ficticios con UUID estables. Los usuarios se declaran en la misma
+forma que escribe el registro: handle sin arroba y en minúsculas, nacionalidad
+como código ISO 3166-1 alfa-2. Como el seed nunca actualiza una fila existente,
+una base poblada con el formato anterior conserva sus handles con arroba; el
+enunciado de la entrega 3 indica recrear la base de desarrollo al mezclar, y
+eso los repone. `app/db/seed.py` contiene la
 inserción. Separar datos y mecanismo hace visible qué contenido es docente y
 permite probar la idempotencia sin mezclarlo con el runtime del API.
 

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
 from app.api.auth import router as auth_router
+from app.api.countries import router as countries_router
 from app.api.feed import router as feed_router
 from app.api.restaurants import router as restaurants_router
 from app.api.reviews import photos_router, reviews_router
@@ -17,6 +18,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(countries_router, prefix="/api/v1")
 app.include_router(restaurants_router, prefix="/api/v1")
 app.include_router(reviews_router, prefix="/api/v1")
 app.include_router(photos_router, prefix="/api/v1")

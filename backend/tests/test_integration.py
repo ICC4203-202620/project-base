@@ -65,7 +65,7 @@ def test_seeded_user_is_persisted():
             .one()
         )
 
-    assert dict(user) == {"email": "demo@example.com", "handle": "@demo"}
+    assert dict(user) == {"email": "demo@example.com", "handle": "demo"}
 
 
 def test_all_seeded_demo_users_are_persisted():
@@ -149,6 +149,119 @@ def test_login_session_logout_lifecycle_uses_persisted_revocation():
         ).status_code
         == 204
     )
+
+
+def test_registration_authenticates_and_persists_the_normalized_account():
+    client = TestClient(app)
+    handle = f"nueva_{uuid4().hex[:8]}"
+    email = f"{handle}@Example.com"
+
+    response = client.post(
+        "/api/v1/auth/register",
+        headers={"Origin": "http://testserver"},
+        json={
+            "name": "  Nueva Foodie  ",
+            "email": email,
+            "handle": f"@{handle.upper()}",
+            "nationality": "cl",
+            "password": "a-long-enough-password",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["user"]["handle"] == handle
+    assert response.json()["user"]["email"] == email.lower()
+
+    session_response = client.get("/api/v1/auth/session")
+    assert session_response.status_code == 200
+    assert session_response.json()["user"]["handle"] == handle
+
+    with engine.connect() as connection:
+        persisted = (
+            connection.execute(
+                select(users.c.handle, users.c.name, users.c.nationality, users.c.email).where(
+                    users.c.handle == handle
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert dict(persisted) == {
+        "handle": handle,
+        "name": "Nueva Foodie",
+        "nationality": "CL",
+        "email": email.lower(),
+    }
+
+    returning = TestClient(app)
+    login_response = returning.post(
+        "/api/v1/auth/login",
+        headers={"Origin": "http://testserver"},
+        json={"email": email.lower(), "password": "a-long-enough-password"},
+    )
+    assert login_response.status_code == 204
+
+
+def test_registration_conflicts_name_the_field_and_ignore_case():
+    client = TestClient(app)
+    taken_handle = f"nueva_{uuid4().hex[:8]}"
+    taken_email = f"{taken_handle}@example.com"
+    registration = {
+        "name": "Nueva Foodie",
+        "email": taken_email,
+        "handle": taken_handle,
+        "nationality": "CL",
+        "password": "a-long-enough-password",
+    }
+
+    assert (
+        client.post(
+            "/api/v1/auth/register",
+            headers={"Origin": "http://testserver"},
+            json=registration,
+        ).status_code
+        == 201
+    )
+
+    same_email_upper = dict(
+        registration, email=taken_email.upper(), handle=f"otra_{uuid4().hex[:8]}"
+    )
+    conflicting_email = TestClient(app).post(
+        "/api/v1/auth/register",
+        headers={"Origin": "http://testserver"},
+        json=same_email_upper,
+    )
+    assert conflicting_email.status_code == 409
+    assert conflicting_email.json()["detail"]["field"] == "email"
+
+    same_handle = dict(registration, email=f"otra_{uuid4().hex[:8]}@example.com")
+    conflicting_handle = TestClient(app).post(
+        "/api/v1/auth/register",
+        headers={"Origin": "http://testserver"},
+        json=same_handle,
+    )
+    assert conflicting_handle.status_code == 409
+    assert conflicting_handle.json()["detail"]["field"] == "handle"
+
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                select(func.count()).select_from(users).where(users.c.email == taken_email)
+            )
+            == 1
+        )
+
+
+def test_seeded_handles_are_stored_without_the_at_sign():
+    with engine.connect() as connection:
+        handles = set(
+            connection.scalars(
+                select(users.c.handle).where(users.c.id.in_(fixture.id for fixture in DEMO_USERS))
+            ).all()
+        )
+
+    assert handles == {fixture.handle for fixture in DEMO_USERS}
+    assert not any(handle.startswith("@") for handle in handles)
 
 
 def test_demo_users_have_independent_sessions_and_revocations():
