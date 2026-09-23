@@ -116,6 +116,14 @@ Index(
     restaurants.c.search_name,
     restaurants.c.id,
 )
+# The map asks "what is inside this rectangle". Plain comparisons over these
+# two columns keep the question answerable without PostGIS, which Aurora DSQL
+# does not offer.
+Index(
+    "ix_restaurants_location",
+    restaurants.c.latitude,
+    restaurants.c.longitude,
+)
 
 restaurant_cuisine_styles = Table(
     "restaurant_cuisine_styles",

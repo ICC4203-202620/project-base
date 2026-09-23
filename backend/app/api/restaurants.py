@@ -7,6 +7,7 @@ from app.api.dependencies import get_current_session, require_trusted_origin
 from app.schemas.restaurants import (
     CuisineStyleResponse,
     RestaurantCreate,
+    RestaurantMapResponse,
     RestaurantPage,
     RestaurantResponse,
     RestaurantUpdate,
@@ -58,6 +59,18 @@ def _raise_http_error(error: Exception) -> NoReturn:
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid cursor",
         )
+    if isinstance(error, restaurant_service.InvalidMapBoundsError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {
+                    "type": "value_error",
+                    "loc": ["query", "bounds"],
+                    "msg": error.reason,
+                    "input": None,
+                }
+            ],
+        )
     if isinstance(error, restaurant_service.UnknownCuisineStylesError):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -101,6 +114,51 @@ def index(
         restaurant_service.SearchTermTooShortError,
         restaurant_service.RestaurantStoreError,
         InvalidCursorError,
+    ) as error:
+        _raise_http_error(error)
+
+
+@router.get(
+    "/map",
+    response_model=RestaurantMapResponse,
+    summary="Restaurants inside the rectangle a map view reports",
+    responses={
+        200: {
+            "description": (
+                "Not paged: a rectangle is a map query, not a list to walk. "
+                f"At most {restaurant_service.MAXIMUM_MAP_RESULTS} restaurants come back, and "
+                "`truncated` says the rectangle held more, so the interface can ask for a "
+                "closer view instead of drawing a partial map as if it were complete."
+            )
+        },
+        422: {
+            "description": (
+                "Malformed rectangle, coordinates out of range, or an area over "
+                f"{restaurant_service.MAXIMUM_MAP_AREA_SQUARE_DEGREES:g} square degrees"
+            )
+        },
+    },
+)
+def map_bounds(
+    south: Annotated[float, Query(ge=-90, le=90)],
+    west: Annotated[float, Query(ge=-180, le=180)],
+    north: Annotated[float, Query(ge=-90, le=90)],
+    east: Annotated[float, Query(ge=-180, le=180)],
+    limit: Annotated[int, Query(ge=1, le=restaurant_service.MAXIMUM_MAP_RESULTS)] = (
+        restaurant_service.MAXIMUM_MAP_RESULTS
+    ),
+) -> restaurant_service.RestaurantMapResult:
+    try:
+        return restaurant_service.restaurants_in_bounds(
+            south=south,
+            west=west,
+            north=north,
+            east=east,
+            limit=limit,
+        )
+    except (
+        restaurant_service.InvalidMapBoundsError,
+        restaurant_service.RestaurantStoreError,
     ) as error:
         _raise_http_error(error)
 

@@ -259,4 +259,40 @@ RESTAURANTS = (
         Decimal("-70.645510"),
         ("peruana", "chilena"),
     ),
+    # Los cuatro siguientes están en Valparaíso: un rectángulo del mapa tiene
+    # que poder separarlos de los de Santiago. Los dos primeros quedan a unos
+    # treinta metros uno del otro, para ejercitar el agrupamiento de
+    # marcadores en el cliente.
+    RestaurantFixture(
+        UUID("20000000-0000-4000-8000-000000000013"),
+        "Ancla y Sal",
+        "Esmeralda 940, Valparaíso",
+        Decimal("-33.045000"),
+        Decimal("-71.619000"),
+        ("chilena",),
+    ),
+    RestaurantFixture(
+        UUID("20000000-0000-4000-8000-000000000014"),
+        "Muelle Doce",
+        "Esmeralda 960, Valparaíso",
+        Decimal("-33.045300"),
+        Decimal("-71.619200"),
+        ("sandwicheria",),
+    ),
+    RestaurantFixture(
+        UUID("20000000-0000-4000-8000-000000000015"),
+        "Terraza Marina",
+        "Av. Altamirano 1480, Valparaíso",
+        Decimal("-33.031200"),
+        Decimal("-71.634800"),
+        ("italiana", "vegana"),
+    ),
+    RestaurantFixture(
+        UUID("20000000-0000-4000-8000-000000000016"),
+        "Ola Brava",
+        "Av. San Martín 620, Viña del Mar",
+        Decimal("-33.019400"),
+        Decimal("-71.552300"),
+        ("japonesa",),
+    ),
 )
