@@ -6,7 +6,7 @@ from typing import BinaryIO
 from uuid import UUID, uuid4
 
 from PIL import Image, UnidentifiedImageError
-from sqlalchemy import insert, or_, select
+from sqlalchemy import insert, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.config import settings
@@ -14,10 +14,11 @@ from app.db.retry import run_transaction_with_retry
 from app.db.schema import photos, restaurants, reviews
 from app.db.session import engine
 from app.media.storage import MediaLocation, MediaStorage, MediaStorageError
+from app.services.photos import DISH, visible_photo_condition
+from app.services.visibility import PUBLIC
 
 logger = logging.getLogger(__name__)
 
-PUBLIC_VISIBILITY = "public"
 IMAGE_FORMATS = {
     "JPEG": ("image/jpeg", "jpg"),
     "PNG": ("image/png", "png"),
@@ -165,6 +166,11 @@ def create_review(
                 storage_key=storage_key,
                 content_type=validated_image.content_type,
                 size_bytes=validated_image.size_bytes,
+                # The photograph carries the visibility it was published
+                # under. While review creation forces public, both agree;
+                # épica 10 brings the choice to the form.
+                visibility=PUBLIC,
+                kind=DISH,
                 created_at=timestamp,
             )
         )
@@ -176,7 +182,7 @@ def create_review(
                 photo_id=photo_id,
                 dish_name=dish_name,
                 text=text,
-                visibility=PUBLIC_VISIBILITY,
+                visibility=PUBLIC,
                 created_at=timestamp,
                 updated_at=timestamp,
             )
@@ -206,7 +212,7 @@ def create_review(
         restaurant_id=restaurant_id,
         dish_name=dish_name,
         text=text,
-        visibility=PUBLIC_VISIBILITY,
+        visibility=PUBLIC,
         photo=photo,
         created_at=timestamp,
         updated_at=timestamp,
@@ -219,13 +225,12 @@ def resolve_photo(
     viewer_id: UUID,
     storage: MediaStorage,
 ) -> tuple[Photo, MediaLocation]:
-    statement = (
-        select(photos)
-        .select_from(photos.join(reviews, reviews.c.photo_id == photos.c.id))
-        .where(
-            photos.c.id == photo_id,
-            or_(reviews.c.visibility == PUBLIC_VISIBILITY, reviews.c.author_id == viewer_id),
-        )
+    # Authorized against the photograph and no longer through a join with
+    # reviews: a photograph without a review would have been invisible, and
+    # épica 8 publishes those.
+    statement = select(photos).where(
+        photos.c.id == photo_id,
+        visible_photo_condition(viewer_id),
     )
     try:
         with engine.connect() as connection:

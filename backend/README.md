@@ -135,7 +135,8 @@ Todas las rutas de restaurantes requieren esa sesión:
 | `GET /api/v1/restaurants/nearby?latitude=…&longitude=…&radius=…` | Restaurantes cercanos, ordenados por distancia. |
 | `GET /api/v1/cuisine-styles` | Catálogo de estilos de comida para el formulario de creación. |
 | `POST /api/v1/restaurants` | Crea un restaurante; responde `201` y publica `Location`. |
-| `GET /api/v1/restaurants/{id}` | Consulta un restaurante o responde `404`. |
+| `GET /api/v1/restaurants/{id}` | Ficha del restaurante, tal como la sesión puede verla. |
+| `GET /api/v1/restaurants/{id}/photos` | Galería del restaurante, paginada por cursor. |
 | `PATCH /api/v1/restaurants/{id}` | Modifica únicamente los campos presentes. |
 | `DELETE /api/v1/restaurants/{id}` | Elimina el recurso y responde `204`. |
 
@@ -160,6 +161,34 @@ API no emitió responde `422` también.
 `GET /api/v1/cuisine-styles` entrega el catálogo completo con `id`, `slug` y
 nombre visible, para que el formulario de creación construya su selector sin
 slugs escritos a mano.
+
+#### Ficha del restaurante
+
+`GET /api/v1/restaurants/{id}` es la pantalla donde converge el resto de la
+aplicación. Conserva los campos que ya devolvía y agrega tres bloques que
+**dependen de quién pregunta**:
+
+* `counters`: fotografías, reseñas, evaluaciones, visitas y seguidores. Cada
+  contador informa sólo lo que ese observador podría además listar; uno que
+  incluyera actividad privada ajena delataría su existencia sin mostrarla. Los
+  de visitas y evaluaciones informan cero hasta que existan sus tablas.
+* `ratings`: el resumen de evaluaciones, con el promedio por criterio y el
+  total. Viene vacío por ahora, y su forma está fijada para que el cliente que
+  lo lea hoy siga funcionando cuando lleguen los números.
+* `viewer`: si el observador sigue al restaurante, para que la interfaz decida
+  entre «Seguir» y «Siguiendo» sin una segunda solicitud.
+
+**La galería no está en la ficha.** Crece sin límite con la actividad del
+restaurante, y la pantalla la recorre por separado con
+`GET /api/v1/restaurants/{id}/photos`, que responde `{ items, next_cursor }`
+en orden cronológico descendente. Incluye las fotografías públicas y, además,
+las privadas del propio observador. Cada item trae su autor, el tipo de
+fotografía, la fecha, `content_url` y el identificador de la reseña asociada
+cuando la tiene.
+
+La visibilidad de una fotografía es suya y no se deduce de la reseña que la
+acompañe: `GET /api/v1/photos/{id}/content` autoriza contra ella, de modo que
+la galería y el contenido concuerdan siempre.
 
 #### Restaurantes del mapa
 

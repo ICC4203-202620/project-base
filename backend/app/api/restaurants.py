@@ -7,13 +7,17 @@ from app.api.dependencies import get_current_session, require_trusted_origin
 from app.schemas.restaurants import (
     CuisineStyleResponse,
     RestaurantCreate,
+    RestaurantDetailResponse,
     RestaurantMapResponse,
     RestaurantNearbyResponse,
     RestaurantPage,
+    RestaurantPhotoPage,
     RestaurantResponse,
     RestaurantUpdate,
 )
+from app.services import photos as photo_service
 from app.services import restaurants as restaurant_service
+from app.services.auth import AuthenticatedSession
 from app.services.cursors import InvalidCursorError
 
 router = APIRouter(
@@ -31,6 +35,11 @@ cuisine_styles_router = APIRouter(
 def _raise_http_error(error: Exception) -> NoReturn:
     if isinstance(error, restaurant_service.RestaurantNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    if isinstance(error, photo_service.PhotoStoreError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Photo service unavailable",
+        )
     if isinstance(error, restaurant_service.DuplicateRestaurantError):
         detail: dict[str, object] = {
             "message": "A restaurant with the same name and address already exists"
@@ -265,13 +274,71 @@ def create(payload: RestaurantCreate, response: Response) -> restaurant_service.
     return restaurant
 
 
-@router.get("/{restaurant_id}", response_model=RestaurantResponse, name="get_restaurant")
-def show(restaurant_id: UUID) -> restaurant_service.Restaurant:
+@router.get(
+    "/{restaurant_id}",
+    response_model=RestaurantDetailResponse,
+    name="get_restaurant",
+    summary="The restaurant page, as the session may see it",
+    responses={
+        200: {
+            "description": (
+                "`counters` and `viewer` depend on who is asking: a counter only reports what "
+                "that person could also list, and `ratings` stays empty until épica 11 fills it. "
+                "The gallery is not here: it has its own endpoint because it grows with the "
+                "activity of the restaurant."
+            )
+        },
+        404: {"description": "No restaurant has this identifier"},
+    },
+)
+def show(
+    restaurant_id: UUID,
+    session: Annotated[AuthenticatedSession, Depends(get_current_session)],
+) -> restaurant_service.RestaurantDetail:
     try:
-        return restaurant_service.get_restaurant(restaurant_id)
+        return restaurant_service.get_restaurant_detail(restaurant_id, viewer_id=session.user_id)
     except (
         restaurant_service.RestaurantNotFoundError,
         restaurant_service.RestaurantStoreError,
+    ) as error:
+        _raise_http_error(error)
+
+
+@router.get(
+    "/{restaurant_id}/photos",
+    response_model=RestaurantPhotoPage,
+    summary="Photographs published at a restaurant, newest first",
+    responses={
+        200: {
+            "description": (
+                "Public photographs, plus the viewer's own private ones. Paged by opaque cursor."
+            )
+        },
+        404: {"description": "No restaurant has this identifier"},
+        422: {"description": "The cursor was not produced by this API"},
+    },
+)
+def gallery(
+    restaurant_id: UUID,
+    session: Annotated[AuthenticatedSession, Depends(get_current_session)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    cursor: str | None = None,
+) -> photo_service.GalleryPage:
+    try:
+        # Resolved first so an unknown restaurant answers 404 instead of an
+        # empty gallery, which would not be the same answer.
+        restaurant_service.get_restaurant(restaurant_id)
+        return photo_service.list_restaurant_photos(
+            restaurant_id,
+            viewer_id=session.user_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except (
+        restaurant_service.RestaurantNotFoundError,
+        restaurant_service.RestaurantStoreError,
+        photo_service.PhotoStoreError,
+        InvalidCursorError,
     ) as error:
         _raise_http_error(error)
 

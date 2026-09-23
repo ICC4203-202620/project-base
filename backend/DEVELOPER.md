@@ -440,6 +440,29 @@ evoluciones posteriores. El header `Location` apunta a
 `/api/v1/reviews/{id}`, implementado por el router de feed como recurso de
 detalle.
 
+## Ficha del restaurante y visibilidad de las fotografías
+
+La visibilidad de una fotografía es una columna de `photos` desde la migración
+`0102`, y no una deducción a partir de la reseña que la acompañe. Deducirla
+deja de funcionar apenas exista una fotografía sin reseña —que es lo que
+introduce la épica 8—, y un join interno contra `reviews` en la galería habría
+tenido que deshacerse entonces, ocultando mientras tanto fotografías
+legítimas. `resolve_photo` autoriza contra esa columna, de modo que la galería
+y `/content` no puedan discrepar.
+
+La reseña conserva su propia `visibility`. Cada columna gobierna lo suyo: la
+de la reseña decide si el item de actividad aparece en el feed y en el perfil,
+la de la fotografía decide la galería y el contenido. Mientras la creación de
+reseñas fuerce visibilidad pública, la fotografía copia la de su reseña; la
+épica 10 decide si las colapsa cuando la elección llegue al formulario.
+
+La ficha resuelve tres consultas acotadas: la fila con sus estilos, los
+contadores con las dos direcciones del seguimiento como subconsultas
+correlacionadas, y el resumen de evaluaciones. Ninguna depende del tamaño del
+historial del restaurante, y por eso la galería quedó fuera. `_evaluation_summary`
+existe como punto único identificado: cuando la épica 11 tenga evaluaciones,
+sólo esa función cambia, y ni el router ni la forma de la respuesta lo hacen.
+
 ## Perfil de usuario y regla de visibilidad
 
 `app/services/users.py` es donde vive la regla de visibilidad del proyecto, y

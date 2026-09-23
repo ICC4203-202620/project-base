@@ -22,7 +22,7 @@ from sqlalchemy import or_, select
 
 from app.db.schema import photos, restaurants, reviews, users
 from app.services.cursors import utc_timestamp
-from app.services.reviews import PUBLIC_VISIBILITY
+from app.services.visibility import PUBLIC
 
 REVIEW_TYPE = "review"
 
@@ -57,7 +57,7 @@ def review_activity_statement(viewer_id):
             .join(restaurants, reviews.c.restaurant_id == restaurants.c.id)
             .join(photos, reviews.c.photo_id == photos.c.id)
         )
-        .where(or_(reviews.c.visibility == PUBLIC_VISIBILITY, reviews.c.author_id == viewer_id))
+        .where(or_(reviews.c.visibility == PUBLIC, reviews.c.author_id == viewer_id))
     )
 
 

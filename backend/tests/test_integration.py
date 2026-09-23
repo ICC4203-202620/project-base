@@ -62,6 +62,15 @@ def test_migrations_create_application_tables():
     }
     assert restaurant_indexes["ix_restaurants_search_name_id"] == ["search_name", "id"]
     assert restaurant_indexes["ix_restaurants_location"] == ["latitude", "longitude"]
+    photo_indexes = {
+        index["name"]: index["column_names"] for index in inspector.get_indexes("photos")
+    }
+    assert photo_indexes["ix_photos_restaurant_created_id"] == [
+        "restaurant_id",
+        "created_at",
+        "id",
+    ]
+    assert "ix_photos_restaurant_id" not in photo_indexes
 
 
 def test_seeded_user_is_persisted():
@@ -484,6 +493,56 @@ def test_nearby_orders_by_measured_distance_with_postgresql():
     )
 
 
+def test_restaurant_page_and_gallery_apply_visibility_with_postgresql():
+    owner, other = DEMO_USERS[0], DEMO_USERS[1]
+    owner_client, other_client = TestClient(app), TestClient(app)
+    for client, user in ((owner_client, owner), (other_client, other)):
+        assert (
+            client.post(
+                "/api/v1/auth/login",
+                headers={"Origin": "http://testserver"},
+                json={"email": user.email, "password": user.password},
+            ).status_code
+            == 204
+        )
+
+    private_review = next(fixture for fixture in REVIEW_FIXTURES if fixture.visibility == "private")
+    restaurant_id = private_review.restaurant_id
+
+    own_page = owner_client.get(f"/api/v1/restaurants/{restaurant_id}").json()
+    seen_page = other_client.get(f"/api/v1/restaurants/{restaurant_id}").json()
+    own_gallery = owner_client.get(f"/api/v1/restaurants/{restaurant_id}/photos").json()
+    seen_gallery = other_client.get(f"/api/v1/restaurants/{restaurant_id}/photos").json()
+
+    assert own_page["name"] and own_page["cuisine_styles"]
+    assert own_page["ratings"] == {"criteria": [], "average": None, "total": 0}
+    assert own_page["viewer"] == {"following": True}
+    assert seen_page["viewer"] == {"following": False}
+
+    own_ids = {photo["id"] for photo in own_gallery["items"]}
+    seen_ids = {photo["id"] for photo in seen_gallery["items"]}
+    assert str(private_review.photo_id) in own_ids
+    assert str(private_review.photo_id) not in seen_ids
+    assert own_page["counters"]["photos"] == len(own_gallery["items"])
+    assert seen_page["counters"]["photos"] == len(seen_gallery["items"])
+    assert seen_page["counters"]["photos"] < own_page["counters"]["photos"]
+
+    # The content of a photograph is authorized against the photograph itself
+    # now, so it still reaches its author and nobody else.
+    content = f"/api/v1/photos/{private_review.photo_id}/content"
+    assert owner_client.get(content).status_code == 200
+    assert other_client.get(content).status_code == 404
+    public_photo = next(fixture for fixture in REVIEW_FIXTURES if fixture.visibility == "public")
+    assert other_client.get(f"/api/v1/photos/{public_photo.photo_id}/content").status_code == 200
+
+    assert owner_client.get(f"/api/v1/restaurants/{uuid4()}").status_code == 404
+    assert owner_client.get(f"/api/v1/restaurants/{uuid4()}/photos").status_code == 404
+    assert (
+        owner_client.get(f"/api/v1/restaurants/{restaurant_id}/photos?cursor=roto").status_code
+        == 422
+    )
+
+
 def test_restaurant_crud_duplicate_detection_and_atomic_style_replacement():
     client = authenticated_client()
     origin = {"Origin": "http://testserver"}
@@ -506,7 +565,17 @@ def test_restaurant_crud_duplicate_detection_and_atomic_style_replacement():
 
     shown = client.get(f"/api/v1/restaurants/{restaurant_id}")
     assert shown.status_code == 200
-    assert shown.json() == created.json()
+    # The page is a superset of what creation answers: the same resource plus
+    # the blocks that depend on who is asking.
+    assert created.json().items() <= shown.json().items()
+    assert shown.json()["counters"] == {
+        "photos": 0,
+        "reviews": 0,
+        "evaluations": 0,
+        "visits": 0,
+        "followers": 0,
+    }
+    assert shown.json()["viewer"] == {"following": False}
 
     duplicate_payload = {
         **payload,
