@@ -40,6 +40,21 @@ class RestaurantFixture:
 
 
 @dataclass(frozen=True)
+class PhotoFixture:
+    """A photograph published on its own, with no review on it."""
+
+    id: UUID
+    author_id: UUID
+    restaurant_id: UUID
+    asset_name: str
+    content_type: str
+    dish_name: str
+    caption: str | None
+    visibility: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class VisitFixture:
     """A check-in.
 
@@ -195,6 +210,46 @@ VISIT_FIXTURES = (
         datetime(2026, 7, 10, 21, tzinfo=UTC),
         datetime(2026, 8, 21, 10, tzinfo=UTC),
         "public",
+    ),
+)
+
+
+# Published without a review, which is what épica 8 makes possible. The first
+# two show the same dish as photographed by two different people, so grouping
+# by dish has something to group.
+PHOTO_FIXTURES = (
+    PhotoFixture(
+        UUID("60000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "sopaipillas.webp",
+        "image/webp",
+        "Sopaipillas",
+        "Recién salidas, con pebre al lado.",
+        "public",
+        datetime(2026, 8, 22, 13, tzinfo=UTC),
+    ),
+    PhotoFixture(
+        UUID("60000000-0000-4000-8000-000000000002"),
+        DEMO_USERS[2].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "sopaipillas.webp",
+        "image/webp",
+        "sopaipillas",
+        None,
+        "public",
+        datetime(2026, 8, 22, 14, tzinfo=UTC),
+    ),
+    PhotoFixture(
+        UUID("60000000-0000-4000-8000-000000000003"),
+        DEMO_USERS[0].id,
+        UUID("20000000-0000-4000-8000-000000000002"),
+        "ceviche.webp",
+        "image/webp",
+        "Ceviche",
+        None,
+        "private",
+        datetime(2026, 8, 23, 20, tzinfo=UTC),
     ),
 )
 

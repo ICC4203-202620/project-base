@@ -9,6 +9,7 @@ from app.db import seed as seed_module
 from app.db.fixtures import (
     CUISINE_STYLES,
     DEMO_USERS,
+    PHOTO_FIXTURES,
     RESTAURANT_FOLLOWS,
     RESTAURANTS,
     REVIEW_FIXTURES,
@@ -105,9 +106,9 @@ def test_seed_creates_all_demo_data_once(monkeypatch, fixture_storage):
     monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
 
     assert seed_module.seed() is True
-    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES)
+    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES) + len(PHOTO_FIXTURES)
     assert seed_module.seed() is False
-    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES)
+    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES) + len(PHOTO_FIXTURES)
 
     with engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(users)) == len(DEMO_USERS)
@@ -115,7 +116,9 @@ def test_seed_creates_all_demo_data_once(monkeypatch, fixture_storage):
             CUISINE_STYLES
         )
         assert connection.scalar(select(func.count()).select_from(restaurants)) == len(RESTAURANTS)
-        assert connection.scalar(select(func.count()).select_from(photos)) == len(REVIEW_FIXTURES)
+        assert connection.scalar(select(func.count()).select_from(photos)) == len(
+            REVIEW_FIXTURES
+        ) + len(PHOTO_FIXTURES)
         assert connection.scalar(select(func.count()).select_from(reviews)) == len(REVIEW_FIXTURES)
         assert connection.scalar(select(func.count()).select_from(user_follows)) == len(
             USER_FOLLOWS
@@ -211,7 +214,7 @@ def test_seed_maps_user_id_and_email_collisions_to_persisted_ids(monkeypatch, fi
 
     assert seed_module.seed() is True
     assert seed_module.seed() is False
-    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES)
+    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES) + len(PHOTO_FIXTURES)
     assert hashed_passwords == [DEMO_USERS[2].password]
     with engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(users)) == len(DEMO_USERS)
@@ -262,7 +265,7 @@ def test_seed_maps_restaurant_identity_collision_to_persisted_id(monkeypatch, fi
 
     assert seed_module.seed() is True
     assert seed_module.seed() is False
-    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES)
+    assert len(fixture_storage.stored) == len(REVIEW_FIXTURES) + len(PHOTO_FIXTURES)
     with engine.connect() as connection:
         assert connection.execute(
             select(restaurant_follows.c.user_id, restaurant_follows.c.restaurant_id)

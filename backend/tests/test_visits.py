@@ -156,8 +156,14 @@ def test_a_visit_shows_in_its_author_profile_and_only_public_ones_elsewhere(seed
     own = user_service.get_activity(AUTHOR.handle, viewer_id=AUTHOR.id, limit=50)
     seen = user_service.get_activity(AUTHOR.handle, viewer_id=OTHER.id, limit=50)
 
-    own_ids = {item[item["type"]]["id"] for item in own["items"]}
-    seen_ids = {item[item["type"]]["id"] for item in seen["items"]}
+    own_ids = {
+        item["photo"]["photos"][0]["id"] if item["type"] == "photo" else item[item["type"]]["id"]
+        for item in own["items"]
+    }
+    seen_ids = {
+        item["photo"]["photos"][0]["id"] if item["type"] == "photo" else item[item["type"]]["id"]
+        for item in seen["items"]
+    }
     assert {private.id, public.id} <= own_ids
     assert public.id in seen_ids
     assert private.id not in seen_ids
@@ -169,7 +175,10 @@ def test_a_private_visit_reaches_nobody_feed(seeded_database):
 
     page = feed_service.get_feed(AUTHOR.id, limit=50)
 
-    assert private.id not in {item[item["type"]]["id"] for item in page["items"]}
+    assert private.id not in {
+        item["photo"]["photos"][0]["id"] if item["type"] == "photo" else item[item["type"]]["id"]
+        for item in page["items"]
+    }
 
 
 def test_a_visit_backdated_today_leads_the_feed_of_the_followers(seeded_database):
@@ -181,7 +190,10 @@ def test_a_visit_backdated_today_leads_the_feed_of_the_followers(seeded_database
 
     feed = feed_service.get_feed(AUTHOR.id, limit=50)
     profile = user_service.get_activity(OTHER.handle, viewer_id=AUTHOR.id, limit=50)
-    profile_ids = [item[item["type"]]["id"] for item in profile["items"]]
+    profile_ids = [
+        item["photo"]["photos"][0]["id"] if item["type"] == "photo" else item[item["type"]]["id"]
+        for item in profile["items"]
+    ]
     occurrences = [item["occurred_at"] for item in profile["items"]]
 
     # Recorded last, so it leads the feed of whoever follows that person.

@@ -9,6 +9,7 @@ from app.core.security import hash_password
 from app.db.fixtures import (
     CUISINE_STYLES,
     DEMO_USERS,
+    PHOTO_FIXTURES,
     RESTAURANT_FOLLOWS,
     RESTAURANTS,
     REVIEW_FIXTURES,
@@ -207,6 +208,36 @@ def _seed_feed_fixtures(
                 )
             )
             changed = True
+    existing_photo_only_ids = set(connection.scalars(select(photos.c.id)))
+    for fixture in PHOTO_FIXTURES:
+        if fixture.id in existing_photo_only_ids:
+            continue
+        asset_path = FIXTURE_ASSET_DIRECTORY / fixture.asset_name
+        with asset_path.open("rb") as stream:
+            storage_key = storage.store(
+                media_id=fixture.id,
+                stream=stream,
+                content_type=fixture.content_type,
+                extension=asset_path.suffix.removeprefix("."),
+            )
+        stored_keys.append(storage_key)
+        connection.execute(
+            insert(photos).values(
+                id=fixture.id,
+                author_id=user_ids[fixture.author_id],
+                restaurant_id=restaurant_ids[fixture.restaurant_id],
+                storage_key=storage_key,
+                content_type=fixture.content_type,
+                size_bytes=asset_path.stat().st_size,
+                visibility=fixture.visibility,
+                kind=DISH,
+                dish_name=fixture.dish_name,
+                search_dish_name=normalize_restaurant_search_text(fixture.dish_name),
+                caption=fixture.caption,
+                created_at=fixture.created_at,
+            )
+        )
+        changed = True
     existing_visit_ids = set(connection.scalars(select(visits.c.id)))
     for fixture in VISIT_FIXTURES:
         if fixture.id in existing_visit_ids:
@@ -250,6 +281,9 @@ def _seed_feed_fixtures(
                 # visibility the review was published under.
                 visibility=fixture.visibility,
                 kind=DISH,
+                # The dish lives on the photograph, not on the review.
+                dish_name=fixture.dish_name,
+                search_dish_name=normalize_restaurant_search_text(fixture.dish_name),
                 created_at=fixture.created_at,
             )
         )
@@ -259,7 +293,6 @@ def _seed_feed_fixtures(
                 photo_id=fixture.photo_id,
                 author_id=author_id,
                 restaurant_id=restaurant_id,
-                dish_name=fixture.dish_name,
                 text=fixture.text,
                 visibility=fixture.visibility,
                 created_at=fixture.created_at,

@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_current_session
 from app.db import seed as seed_module
-from app.db.fixtures import DEMO_USERS, REVIEW_FIXTURES, VISIT_FIXTURES
+from app.db.fixtures import DEMO_USERS, PHOTO_FIXTURES, REVIEW_FIXTURES, VISIT_FIXTURES
 from app.db.schema import metadata
 from app.main import app
 from app.services import feed as feed_service
@@ -57,13 +57,19 @@ def session(user_index=0):
 
 
 def activity_ids(page):
-    return [item[item["type"]]["id"] for item in page["items"]]
+    # A photo item carries a collection of photographs, one in this épica.
+    return [
+        item["photo"]["photos"][0]["id"] if item["type"] == "photo" else item[item["type"]]["id"]
+        for item in page["items"]
+    ]
 
 
 # What the seed puts in front of `demo`, ordered by the instant each activity
 # was published. The backdated visit leads precisely because it was recorded
 # last, which is the difference the feed orders by.
 EXPECTED_FEED = [
+    PHOTO_FIXTURES[1].id,
+    PHOTO_FIXTURES[0].id,
     VISIT_FIXTURES[3].id,
     REVIEW_FIXTURES[0].id,
     VISIT_FIXTURES[2].id,
@@ -84,7 +90,9 @@ def test_seeded_feed_mixes_both_classes_once_and_excludes_private(seeded_databas
     assert ids.count(REVIEW_FIXTURES[0].id) == 1
     assert REVIEW_FIXTURES[2].id not in ids
     assert VISIT_FIXTURES[1].id not in ids
-    assert {item["type"] for item in page["items"]} == {"review", "visit"}
+    assert {item["type"] for item in page["items"]} == {"review", "visit", "photo"}
+    # The private photograph of another account never reaches this feed.
+    assert PHOTO_FIXTURES[2].id not in ids
     assert page["next_cursor"] is None
     assert all(
         item["review"]["photo"]["content_url"].startswith("/api/")
@@ -98,12 +106,17 @@ def test_a_backdated_visit_reaches_the_feed_at_the_top(seeded_database):
     backdated = VISIT_FIXTURES[3]
 
     page = feed_service.get_feed(DEMO_USERS[0].id, limit=20)
-    first = page["items"][0]
+    first = next(item for item in page["items"] if item["type"] == "visit")
 
     assert first["visit"]["id"] == backdated.id
-    # It happened over a month before everything else in the page.
-    assert first["occurred_at"] < page["items"][1]["occurred_at"]
-    assert first["published_at"] > page["items"][1]["published_at"]
+    # It happened over a month before the activity around it, and was
+    # published after all of it.
+    assert first["occurred_at"] < min(
+        item["occurred_at"] for item in page["items"] if item is not first
+    )
+    assert first["published_at"] > min(
+        item["published_at"] for item in page["items"] if item is not first
+    )
 
 
 def test_feed_cursor_pages_are_stable_and_invalid_cursor_is_rejected(seeded_database):

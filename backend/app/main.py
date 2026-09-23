@@ -5,9 +5,10 @@ from mangum import Mangum
 from app.api.auth import router as auth_router
 from app.api.countries import router as countries_router
 from app.api.feed import router as feed_router
+from app.api.photos import router as photos_router
 from app.api.restaurants import cuisine_styles_router
 from app.api.restaurants import router as restaurants_router
-from app.api.reviews import photos_router, reviews_router
+from app.api.reviews import router as reviews_router
 from app.api.users import router as users_router
 from app.api.visits import router as visits_router
 from app.core.config import settings
