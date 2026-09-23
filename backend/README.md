@@ -130,16 +130,34 @@ Todas las rutas de restaurantes requieren esa sesión:
 
 | Método y path | Resultado |
 | --- | --- |
-| `GET /api/v1/restaurants?limit=20&offset=0` | Lista una página ordenada de forma estable. |
+| `GET /api/v1/restaurants?q=cocina&limit=20` | Busca por nombre y pagina por cursor. |
+| `GET /api/v1/cuisine-styles` | Catálogo de estilos de comida para el formulario de creación. |
 | `POST /api/v1/restaurants` | Crea un restaurante; responde `201` y publica `Location`. |
 | `GET /api/v1/restaurants/{id}` | Consulta un restaurante o responde `404`. |
 | `PATCH /api/v1/restaurants/{id}` | Modifica únicamente los campos presentes. |
 | `DELETE /api/v1/restaurants/{id}` | Elimina el recurso y responde `204`. |
 
-`limit` tiene el valor predeterminado 20, acepta de 1 a 100 y evita descargar
-una colección sin límite. `offset` comienza en 0. Cada respuesta contiene
-`id`, `name`, `address`, `latitude`, `longitude`, `cuisine_styles`,
-`created_at` y `updated_at`.
+La colección responde `{ items, next_cursor }` y se recorre por cursor
+opaco, no por `offset`: mientras alguien recorre la lista, otras personas
+crean restaurantes, y un desplazamiento numérico repite y salta filas. Cuando
+`next_cursor` es `null`, no hay más páginas. `limit` tiene el valor
+predeterminado 20 y acepta de 1 a 100.
+
+Cada item es el **resumen de restaurante** que comparten esta colección, el
+mapa y la búsqueda por cercanía: `id`, `name`, `address`, `latitude`,
+`longitude` y `cuisine_styles`. La ficha de un restaurante agrega `created_at`
+y `updated_at`.
+
+`q` acota la colección a un término contenido en el nombre, ignorando
+mayúsculas y acentos: `cafe` encuentra «Café Ñielol». El orden es alfabético
+sobre esa misma forma y no por relevancia, porque un cursor tiene que
+reanudar desde una posición estable. Un término de menos de dos caracteres
+responde `422` en vez de devolver la colección completa, y un cursor que esta
+API no emitió responde `422` también.
+
+`GET /api/v1/cuisine-styles` entrega el catálogo completo con `id`, `slug` y
+nombre visible, para que el formulario de creación construya su selector sin
+slugs escritos a mano.
 
 Al crear o editar, `cuisine_styles` recibe uno o más slugs existentes. Los datos
 iniciales ofrecen `chilena`, `peruana`, `italiana`, `japonesa`, `india`,
@@ -148,8 +166,22 @@ objeto con `id`, `slug` y nombre visible. FastAPI describe todos los modelos y
 permite probarlos en [`/docs`](http://localhost:5173/docs).
 
 Nombre y dirección se comparan sin distinguir mayúsculas ni espacios
-repetidos. Intentar crear la misma combinación responde `409 Conflict`; una
-coordenada fuera de rango, una lista vacía o un slug desconocido responde
+repetidos, pero **sí distinguen acentos**: «Café Perú» y «Cafe Peru» son dos
+restaurantes distintos que dos personas pudieron aportar, aunque la búsqueda
+los encuentre juntos. Intentar crear la misma combinación responde `409
+Conflict` con la ficha que ya existe, para que la interfaz lleve al usuario
+hasta ella en lugar de dejarlo en un error:
+
+```json
+{
+  "detail": {
+    "message": "A restaurant with the same name and address already exists",
+    "restaurant": { "id": "…", "name": "Cocina del Barrio" }
+  }
+}
+```
+
+Una coordenada fuera de rango, una lista vacía o un slug desconocido responde
 `422`. En esta base docente cualquier usuario autenticado puede modificar
 restaurantes. Esa simplificación permite practicar el CRUD, pero **no es un
 modelo de autorización apropiado para producción**: roles, ownership y

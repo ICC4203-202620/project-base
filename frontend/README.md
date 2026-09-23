@@ -12,8 +12,9 @@ consumo de una colección protegida:
 - `GET /healthz`, para comprobar la conectividad;
 - `GET /api/v1/auth/session`, para reconstruir la interfaz al cargar la página;
 - `POST /api/v1/auth/login`, para iniciar una sesión;
-- `GET /api/v1/restaurants?limit=20&offset=0`, para mostrar la primera página de
-  restaurantes únicamente después de confirmar la sesión; y
+- `GET /api/v1/restaurants?limit=20`, que responde `{ items, next_cursor }`,
+  para mostrar la primera página de restaurantes únicamente después de
+  confirmar la sesión; y
 - `POST /api/v1/auth/logout`, para revocarla y eliminar la cookie.
 
 No incluye `manifest`, `service worker`, soporte offline ni instalación como

@@ -13,7 +13,14 @@ class UserSummary(BaseModel):
     name: str
 
 
-class RestaurantSummary(BaseModel):
+class ActivityRestaurant(BaseModel):
+    """Only what an activity card shows.
+
+    Deliberately thinner than the RestaurantSummary of the collections: the
+    feed does not draw a marker, and loading cuisine styles here would add a
+    query per page for something nobody reads.
+    """
+
     id: UUID
     name: str
     address: str
@@ -31,7 +38,7 @@ class ActivityReview(BaseModel):
     text: str
     visibility: Literal["public", "private"]
     author: UserSummary
-    restaurant: RestaurantSummary
+    restaurant: ActivityRestaurant
     photo: ActivityPhoto
     created_at: datetime
     updated_at: datetime

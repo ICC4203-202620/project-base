@@ -24,7 +24,11 @@ from app.db.schema import (
 from app.db.session import engine
 from app.main import app
 from app.media.storage import LocalMediaStorage, get_media_storage
-from app.services.restaurants import normalize_restaurant_text, restaurant_identity_key
+from app.services.restaurants import (
+    normalize_restaurant_search_text,
+    normalize_restaurant_text,
+    restaurant_identity_key,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -355,17 +359,40 @@ def authenticated_client(email="demo@example.com", password="demo-password") -> 
     return client
 
 
-def test_restaurant_collection_is_stable_bounded_and_authenticated():
+def test_restaurant_collection_pages_by_cursor_and_searches_with_postgresql():
     client = authenticated_client()
 
-    first = client.get("/api/v1/restaurants?limit=3&offset=1")
-    second = client.get("/api/v1/restaurants?limit=3&offset=1")
+    first = client.get("/api/v1/restaurants?limit=3")
+    repeated = client.get("/api/v1/restaurants?limit=3")
 
     assert first.status_code == 200
-    assert first.json() == second.json()
-    assert len(first.json()) == 3
-    assert all(restaurant["cuisine_styles"] for restaurant in first.json())
+    assert first.json() == repeated.json()
+    assert len(first.json()["items"]) == 3
+    assert all(restaurant["cuisine_styles"] for restaurant in first.json()["items"])
+    assert all("latitude" in restaurant for restaurant in first.json()["items"])
+
+    walked = []
+    cursor = first.json()["next_cursor"]
+    walked.extend(restaurant["id"] for restaurant in first.json()["items"])
+    while cursor:
+        page = client.get(f"/api/v1/restaurants?limit=3&cursor={cursor}").json()
+        walked.extend(restaurant["id"] for restaurant in page["items"])
+        cursor = page["next_cursor"]
+
+    assert len(walked) == len(set(walked))
+    assert len(walked) >= len(RESTAURANTS)
+
+    # Accents and case are folded for search but not for duplicate detection.
+    found = client.get("/api/v1/restaurants?q=CAFE").json()
+    assert "Café Ñielol" in [restaurant["name"] for restaurant in found["items"]]
+
     assert client.get("/api/v1/restaurants?limit=101").status_code == 422
+    assert client.get("/api/v1/restaurants?q=c").status_code == 422
+    assert client.get("/api/v1/restaurants?cursor=roto").status_code == 422
+
+    catalogue = client.get("/api/v1/cuisine-styles")
+    assert catalogue.status_code == 200
+    assert {style["slug"] for style in catalogue.json()} == {style.slug for style in CUISINE_STYLES}
 
 
 def test_restaurant_crud_duplicate_detection_and_atomic_style_replacement():
@@ -397,10 +424,13 @@ def test_restaurant_crud_duplicate_detection_and_atomic_style_replacement():
         "name": "  LABORATORIO   GASTRONÓMICO ",
         "address": " monjitas 550, SANTIAGO ",
     }
-    assert (
-        client.post("/api/v1/restaurants", headers=origin, json=duplicate_payload).status_code
-        == 409
-    )
+    duplicate = client.post("/api/v1/restaurants", headers=origin, json=duplicate_payload)
+    assert duplicate.status_code == 409
+    # The interface has to be able to send the person to the page that exists.
+    assert duplicate.json()["detail"]["restaurant"] == {
+        "id": str(restaurant_id),
+        "name": created.json()["name"],
+    }
 
     updated = client.patch(
         f"/api/v1/restaurants/{restaurant_id}",
@@ -608,6 +638,7 @@ def test_seed_is_idempotent_and_preserves_fixture_edits():
             .values(
                 name=edited_name,
                 normalized_name=normalize_restaurant_text(edited_name),
+                search_name=normalize_restaurant_search_text(edited_name),
                 identity_key=restaurant_identity_key(edited_name, fixture.address),
             )
         )
