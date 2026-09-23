@@ -406,6 +406,33 @@ restaurantes son estables: ejecutarlo nuevamente no duplica filas ni reemplaza
 cambios hechos por un estudiante. La configuración rechaza explícitamente el
 seed en `ENVIRONMENT=production`.
 
+### Check-in en un restaurante
+
+| Método y path | Resultado |
+| --- | --- |
+| `POST /api/v1/visits` | Registra que la sesión estuvo en un restaurante. |
+| `GET /api/v1/visits/{id}` | Consulta una visita, o responde `404`. |
+
+Recibe `restaurant_id`, `visibility` y `occurred_at` opcional. **La visibilidad
+es obligatoria y el backend no aplica un valor por omisión**: el enunciado pide
+que la elección esté en el formulario, y ese valor pertenece a la interfaz. Un
+default en el servidor convertiría un campo olvidado en una publicación
+accidental.
+
+`occurred_at` es cuándo la persona estuvo ahí; ausente, es el instante de la
+solicitud. El enunciado admite «está o estuvo», así que registrar la visita de
+ayer es un caso legítimo. Un momento futuro responde `422` —una visita futura
+es una reserva, que no está en el alcance—, con una tolerancia de minutos por
+si el reloj del teléfono adelanta. El pasado no se restringe.
+
+No hay restricción de unicidad: una persona visita el mismo restaurante muchas
+veces, y ese es el caso normal.
+
+Una visita es direccionable por URL propia, porque `notificationclick` y una
+URL profunda recargada tienen que poder abrir su vista. Una visita pública la
+ve cualquier sesión; una privada, sólo su autor, y para el resto responde
+`404`, igual que el detalle de una reseña.
+
 ### Perfil de usuario y actividad
 
 | Método y path | Resultado |
@@ -450,15 +477,17 @@ La actividad usa el mismo envelope del feed y se pagina por cursor opaco:
 ```
 
 `occurred_at` es cuándo ocurrió la actividad y `published_at` cuándo se
-publicó. Hoy coinciden, porque una reseña se publica cuando se escribe, pero
-la visita de la épica 7 traerá un momento que el usuario informa y que puede
-estar en el pasado. El perfil ordena por `occurred_at`, que es la cronología
-de esa persona; el feed ordena por `published_at`. Un cursor que esta API no
-emitió responde `422`.
+publicó. Para una reseña coinciden, porque se publica cuando se escribe; para
+una visita no tienen por qué, ya que su momento lo informa el usuario y puede
+estar en el pasado. **El perfil ordena por `occurred_at`**, que es la
+cronología de esa persona; **el feed ordena por `published_at`**, de modo que
+registrar hoy una visita de hace un mes aparezca arriba en el feed de quienes
+siguen a su autor y no enterrada donde nadie la verá. Un cursor que esta API
+no emitió responde `422`.
 
-Cada épica posterior agrega su clase de actividad a este mismo endpoint, con
-su propio `type` y su objeto bajo esa clave. Un cliente que recorre la lista
-no necesita saber cuáles existen.
+Cada clase de actividad viaja bajo una clave llamada como su `type`: una
+reseña en `review`, una visita en `visit`. Un cliente que recorre la lista
+distingue por `type` y no necesita saber cuáles clases existen.
 
 Para detener los servicios conservando los datos locales:
 

@@ -40,6 +40,23 @@ class RestaurantFixture:
 
 
 @dataclass(frozen=True)
+class VisitFixture:
+    """A check-in.
+
+    `occurred_at` is when the person was there and `published_at` when they
+    recorded it. They differ in one fixture on purpose, because that is the
+    difference the profile and the feed order by.
+    """
+
+    id: UUID
+    author_id: UUID
+    restaurant_id: UUID
+    occurred_at: datetime
+    published_at: datetime
+    visibility: str
+
+
+@dataclass(frozen=True)
 class ReviewFixture:
     id: UUID
     photo_id: UUID
@@ -140,6 +157,44 @@ REVIEW_FIXTURES = (
         "Reseña pública visible sólo por restaurante seguido.",
         "public",
         datetime(2026, 8, 18, 18, tzinfo=UTC),
+    ),
+)
+
+
+VISIT_FIXTURES = (
+    VisitFixture(
+        UUID("50000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        datetime(2026, 8, 19, 20, tzinfo=UTC),
+        datetime(2026, 8, 19, 20, tzinfo=UTC),
+        "public",
+    ),
+    VisitFixture(
+        UUID("50000000-0000-4000-8000-000000000002"),
+        DEMO_USERS[0].id,
+        UUID("20000000-0000-4000-8000-000000000002"),
+        datetime(2026, 8, 17, 13, tzinfo=UTC),
+        datetime(2026, 8, 17, 13, tzinfo=UTC),
+        "private",
+    ),
+    VisitFixture(
+        UUID("50000000-0000-4000-8000-000000000003"),
+        DEMO_USERS[2].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        datetime(2026, 8, 20, 9, tzinfo=UTC),
+        datetime(2026, 8, 20, 9, tzinfo=UTC),
+        "public",
+    ),
+    # Recorded well after it happened: it is the oldest in its author's
+    # profile and the most recent in the feed of whoever follows them.
+    VisitFixture(
+        UUID("50000000-0000-4000-8000-000000000004"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000003"),
+        datetime(2026, 7, 10, 21, tzinfo=UTC),
+        datetime(2026, 8, 21, 10, tzinfo=UTC),
+        "public",
     ),
 )
 

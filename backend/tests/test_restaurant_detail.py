@@ -86,7 +86,8 @@ def test_the_page_carries_what_the_screen_needs_without_the_gallery(seeded_datab
     assert page.ratings.average is None
     assert page.ratings.criteria == ()
     assert page.counters.evaluations == page.ratings.total
-    assert page.counters.visits == 0
+    # Two public check-ins in the seed, by two different people.
+    assert page.counters.visits == 2
     assert not hasattr(page, "photos")
 
 

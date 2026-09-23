@@ -12,7 +12,13 @@ from sqlalchemy import func, inspect, select, text, update
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.db import seed as seed_module
-from app.db.fixtures import CUISINE_STYLES, DEMO_USERS, RESTAURANTS, REVIEW_FIXTURES
+from app.db.fixtures import (
+    CUISINE_STYLES,
+    DEMO_USERS,
+    RESTAURANTS,
+    REVIEW_FIXTURES,
+    VISIT_FIXTURES,
+)
 from app.db.schema import (
     auth_sessions,
     cuisine_styles,
@@ -697,8 +703,8 @@ def test_profile_and_activity_apply_visibility_with_postgresql():
     seen_activity = author_client.get(f"/api/v1/users/{owner.handle}/activity").json()
 
     private_review = next(fixture for fixture in REVIEW_FIXTURES if fixture.visibility == "private")
-    own_ids = {item["review"]["id"] for item in own_activity["items"]}
-    seen_ids = {item["review"]["id"] for item in seen_activity["items"]}
+    own_ids = {item[item["type"]]["id"] for item in own_activity["items"]}
+    seen_ids = {item[item["type"]]["id"] for item in seen_activity["items"]}
 
     assert own_profile["handle"] == owner.handle
     assert own_profile["nationality"] == {"code": "CL", "name": "Chile"}
@@ -721,7 +727,11 @@ def test_seeded_feed_and_review_detail_work_with_postgresql():
 
     response = client.get("/api/v1/feed?limit=50")
     assert response.status_code == 200
-    review_ids = [item["review"]["id"] for item in response.json()["items"]]
+    # The feed mixes classes of activity, each under a key named after its type.
+    activity_ids = [item[item["type"]]["id"] for item in response.json()["items"]]
+    review_ids = [
+        item["review"]["id"] for item in response.json()["items"] if item["type"] == "review"
+    ]
     fixture_ids = [
         review_id
         for review_id in review_ids
@@ -732,7 +742,14 @@ def test_seeded_feed_and_review_detail_work_with_postgresql():
         str(REVIEW_FIXTURES[1].id),
         str(REVIEW_FIXTURES[3].id),
     ]
-    assert str(REVIEW_FIXTURES[2].id) not in review_ids
+    assert str(REVIEW_FIXTURES[2].id) not in activity_ids
+    visit_ids = {
+        item["visit"]["id"] for item in response.json()["items"] if item["type"] == "visit"
+    }
+    assert {str(fixture.id) for fixture in VISIT_FIXTURES if fixture.visibility == "public"} & (
+        visit_ids
+    )
+    assert str(VISIT_FIXTURES[1].id) not in activity_ids
 
     private = client.get(f"/api/v1/reviews/{REVIEW_FIXTURES[2].id}")
     assert private.status_code == 200

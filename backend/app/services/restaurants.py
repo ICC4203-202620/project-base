@@ -20,6 +20,7 @@ from app.db.schema import (
     restaurant_follows,
     restaurants,
     reviews,
+    visits,
 )
 from app.db.session import engine
 from app.services.cursors import decode_cursor, encode_cursor
@@ -671,6 +672,15 @@ def _restaurant_counters_statement(restaurant_id: UUID, viewer_id: UUID):
         )
         .scalar_subquery()
     )
+    visible_visits = (
+        select(func.count())
+        .select_from(visits)
+        .where(
+            visits.c.restaurant_id == restaurant_id,
+            or_(visits.c.visibility == PUBLIC, visits.c.author_id == viewer_id),
+        )
+        .scalar_subquery()
+    )
     followers = (
         select(func.count())
         .select_from(restaurant_follows)
@@ -688,6 +698,7 @@ def _restaurant_counters_statement(restaurant_id: UUID, viewer_id: UUID):
     return select(
         visible_photos.label("photos_count"),
         visible_reviews.label("reviews_count"),
+        visible_visits.label("visits_count"),
         followers.label("followers_count"),
         viewer_follows.label("viewer_follows"),
     )
@@ -726,11 +737,10 @@ def get_restaurant_detail(restaurant_id: UUID, *, viewer_id: UUID) -> Restaurant
         counters=RestaurantCounters(
             photos=counters["photos_count"],
             reviews=counters["reviews_count"],
-            # Visits arrive with épica 7 and evaluations with épica 11. The
-            # evaluation counter reports what the summary aggregates, which is
-            # the public evaluations, so both numbers agree on the same screen.
+            # Evaluations arrive with épica 11. The counter reports what the
+            # summary aggregates, so both numbers agree on the same screen.
             evaluations=ratings.total,
-            visits=0,
+            visits=counters["visits_count"],
             followers=counters["followers_count"],
         ),
         ratings=ratings,

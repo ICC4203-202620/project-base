@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_current_session
 from app.db import seed as seed_module
-from app.db.fixtures import DEMO_USERS, REVIEW_FIXTURES
+from app.db.fixtures import DEMO_USERS, REVIEW_FIXTURES, VISIT_FIXTURES
 from app.db.schema import metadata
 from app.main import app
 from app.services import feed as feed_service
@@ -56,21 +56,54 @@ def session(user_index=0):
     )
 
 
-def test_seeded_feed_includes_both_follow_types_once_and_excludes_private(seeded_database):
+def activity_ids(page):
+    return [item[item["type"]]["id"] for item in page["items"]]
+
+
+# What the seed puts in front of `demo`, ordered by the instant each activity
+# was published. The backdated visit leads precisely because it was recorded
+# last, which is the difference the feed orders by.
+EXPECTED_FEED = [
+    VISIT_FIXTURES[3].id,
+    REVIEW_FIXTURES[0].id,
+    VISIT_FIXTURES[2].id,
+    VISIT_FIXTURES[0].id,
+    REVIEW_FIXTURES[1].id,
+    REVIEW_FIXTURES[3].id,
+]
+
+
+def test_seeded_feed_mixes_both_classes_once_and_excludes_private(seeded_database):
     del seeded_database
 
     page = feed_service.get_feed(DEMO_USERS[0].id, limit=20)
-    review_ids = [item["review"]["id"] for item in page["items"]]
+    ids = activity_ids(page)
 
-    assert review_ids == [
-        REVIEW_FIXTURES[0].id,
-        REVIEW_FIXTURES[1].id,
-        REVIEW_FIXTURES[3].id,
-    ]
-    assert review_ids.count(REVIEW_FIXTURES[0].id) == 1
-    assert REVIEW_FIXTURES[2].id not in review_ids
+    assert ids == EXPECTED_FEED
+    # The first review matches both follow criteria and still appears once.
+    assert ids.count(REVIEW_FIXTURES[0].id) == 1
+    assert REVIEW_FIXTURES[2].id not in ids
+    assert VISIT_FIXTURES[1].id not in ids
+    assert {item["type"] for item in page["items"]} == {"review", "visit"}
     assert page["next_cursor"] is None
-    assert all(item["review"]["photo"]["content_url"].startswith("/api/") for item in page["items"])
+    assert all(
+        item["review"]["photo"]["content_url"].startswith("/api/")
+        for item in page["items"]
+        if item["type"] == "review"
+    )
+
+
+def test_a_backdated_visit_reaches_the_feed_at_the_top(seeded_database):
+    del seeded_database
+    backdated = VISIT_FIXTURES[3]
+
+    page = feed_service.get_feed(DEMO_USERS[0].id, limit=20)
+    first = page["items"][0]
+
+    assert first["visit"]["id"] == backdated.id
+    # It happened over a month before everything else in the page.
+    assert first["occurred_at"] < page["items"][1]["occurred_at"]
+    assert first["published_at"] > page["items"][1]["published_at"]
 
 
 def test_feed_cursor_pages_are_stable_and_invalid_cursor_is_rejected(seeded_database):
@@ -78,10 +111,10 @@ def test_feed_cursor_pages_are_stable_and_invalid_cursor_is_rejected(seeded_data
     seen = []
     cursor = None
 
-    for expected_id in (REVIEW_FIXTURES[0].id, REVIEW_FIXTURES[1].id, REVIEW_FIXTURES[3].id):
+    for expected_id in EXPECTED_FEED:
         page = feed_service.get_feed(DEMO_USERS[0].id, limit=1, cursor=cursor)
-        assert [item["review"]["id"] for item in page["items"]] == [expected_id]
-        seen.extend(item["review"]["id"] for item in page["items"])
+        assert activity_ids(page) == [expected_id]
+        seen.extend(activity_ids(page))
         cursor = page["next_cursor"]
 
     assert len(seen) == len(set(seen))

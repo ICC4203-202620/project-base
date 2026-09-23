@@ -9,6 +9,7 @@ from app.api.restaurants import cuisine_styles_router
 from app.api.restaurants import router as restaurants_router
 from app.api.reviews import photos_router, reviews_router
 from app.api.users import router as users_router
+from app.api.visits import router as visits_router
 from app.core.config import settings
 
 app = FastAPI(title="Foodie API", version="0.1.0")
@@ -27,6 +28,7 @@ app.include_router(reviews_router, prefix="/api/v1")
 app.include_router(photos_router, prefix="/api/v1")
 app.include_router(feed_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(visits_router, prefix="/api/v1")
 
 
 @app.get("/healthz", tags=["health"])

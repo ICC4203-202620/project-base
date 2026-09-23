@@ -13,6 +13,7 @@ from app.db.fixtures import (
     RESTAURANTS,
     REVIEW_FIXTURES,
     USER_FOLLOWS,
+    VISIT_FIXTURES,
 )
 from app.db.schema import (
     cuisine_styles,
@@ -23,6 +24,7 @@ from app.db.schema import (
     reviews,
     user_follows,
     users,
+    visits,
 )
 from app.db.session import engine
 from app.media.storage import MediaStorage, get_media_storage
@@ -205,6 +207,21 @@ def _seed_feed_fixtures(
                 )
             )
             changed = True
+    existing_visit_ids = set(connection.scalars(select(visits.c.id)))
+    for fixture in VISIT_FIXTURES:
+        if fixture.id in existing_visit_ids:
+            continue
+        connection.execute(
+            insert(visits).values(
+                id=fixture.id,
+                author_id=user_ids[fixture.author_id],
+                restaurant_id=restaurant_ids[fixture.restaurant_id],
+                occurred_at=fixture.occurred_at,
+                visibility=fixture.visibility,
+                created_at=fixture.published_at,
+            )
+        )
+        changed = True
     existing_review_ids = set(connection.scalars(select(reviews.c.id)))
     existing_photo_ids = set(connection.scalars(select(photos.c.id)))
     for fixture in REVIEW_FIXTURES:
