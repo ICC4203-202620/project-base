@@ -448,6 +448,42 @@ def test_map_rectangle_uses_the_coordinate_index_with_postgresql():
     assert "ix_restaurants_location" in plan
 
 
+def test_nearby_orders_by_measured_distance_with_postgresql():
+    client = authenticated_client()
+    centre = "latitude=-33.4372&longitude=-70.6506"
+
+    close_by = client.get(f"/api/v1/restaurants/nearby?{centre}&radius=3000")
+    wide = client.get(f"/api/v1/restaurants/nearby?{centre}&radius=50000")
+    chilean = client.get(f"/api/v1/restaurants/nearby?{centre}&radius=50000&cuisine_style=chilena")
+
+    assert close_by.status_code == 200
+    distances = [restaurant["distance_m"] for restaurant in wide.json()["items"]]
+    assert distances == sorted(distances)
+    assert all(distance <= 50_000 for distance in distances)
+    assert len(close_by.json()["items"]) < len(wide.json()["items"])
+    assert wide.json()["truncated"] is False
+
+    assert chilean.status_code == 200
+    assert 0 < len(chilean.json()["items"]) < len(wide.json()["items"])
+    assert all(
+        any(style["slug"] == "chilena" for style in restaurant["cuisine_styles"])
+        for restaurant in chilean.json()["items"]
+    )
+
+    empty = client.get("/api/v1/restaurants/nearby?latitude=-10&longitude=-65&radius=1000")
+    assert empty.status_code == 200
+    assert empty.json() == {"items": [], "truncated": False}
+
+    assert client.get(f"/api/v1/restaurants/nearby?{centre}&radius=0").status_code == 422
+    assert client.get(f"/api/v1/restaurants/nearby?{centre}&radius=60000").status_code == 422
+    assert (
+        client.get(
+            f"/api/v1/restaurants/nearby?{centre}&radius=1000&cuisine_style=marciana"
+        ).status_code
+        == 422
+    )
+
+
 def test_restaurant_crud_duplicate_detection_and_atomic_style_replacement():
     client = authenticated_client()
     origin = {"Origin": "http://testserver"}

@@ -8,6 +8,7 @@ from app.schemas.restaurants import (
     CuisineStyleResponse,
     RestaurantCreate,
     RestaurantMapResponse,
+    RestaurantNearbyResponse,
     RestaurantPage,
     RestaurantResponse,
     RestaurantUpdate,
@@ -58,6 +59,18 @@ def _raise_http_error(error: Exception) -> NoReturn:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Invalid cursor",
+        )
+    if isinstance(error, restaurant_service.InvalidNearbySearchError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {
+                    "type": "value_error",
+                    "loc": ["query", "radius"],
+                    "msg": error.reason,
+                    "input": None,
+                }
+            ],
         )
     if isinstance(error, restaurant_service.InvalidMapBoundsError):
         raise HTTPException(
@@ -158,6 +171,57 @@ def map_bounds(
         )
     except (
         restaurant_service.InvalidMapBoundsError,
+        restaurant_service.RestaurantStoreError,
+    ) as error:
+        _raise_http_error(error)
+
+
+@router.get(
+    "/nearby",
+    response_model=RestaurantNearbyResponse,
+    summary="Restaurants within a radius of a position, by cuisine style",
+    responses={
+        200: {
+            "description": (
+                "Ordered by distance ascending, with `distance_m` in metres as measured by the "
+                "server. Not paged: the order is a computed distance, and a cursor over it would "
+                f"recompute it on every page. At most {restaurant_service.MAXIMUM_MAP_RESULTS} "
+                "results come back and `truncated` says the circle held more, so the answer is "
+                "to reduce the radius or narrow the style."
+            )
+        },
+        422: {
+            "description": (
+                "Coordinates out of range, a radius that is not positive or over "
+                f"{restaurant_service.MAXIMUM_NEARBY_RADIUS_METRES:g} metres, "
+                "or an unknown cuisine style"
+            )
+        },
+    },
+)
+def nearby(
+    latitude: Annotated[float, Query(ge=-90, le=90)],
+    longitude: Annotated[float, Query(ge=-180, le=180)],
+    radius: Annotated[
+        float,
+        Query(gt=0, le=restaurant_service.MAXIMUM_NEARBY_RADIUS_METRES, description="In metres"),
+    ],
+    cuisine_style: Annotated[list[str] | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=restaurant_service.MAXIMUM_MAP_RESULTS)] = (
+        restaurant_service.MAXIMUM_MAP_RESULTS
+    ),
+) -> restaurant_service.RestaurantNearbyResult:
+    try:
+        return restaurant_service.restaurants_nearby(
+            latitude=latitude,
+            longitude=longitude,
+            radius_metres=radius,
+            cuisine_style_slugs=cuisine_style or (),
+            limit=limit,
+        )
+    except (
+        restaurant_service.InvalidNearbySearchError,
+        restaurant_service.UnknownCuisineStylesError,
         restaurant_service.RestaurantStoreError,
     ) as error:
         _raise_http_error(error)
