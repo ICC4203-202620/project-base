@@ -7,7 +7,7 @@ import jwt
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-from sqlalchemy import func, inspect, select, update
+from sqlalchemy import func, inspect, select, text, update
 
 from app.core.config import settings
 from app.core.security import create_access_token
@@ -57,6 +57,11 @@ def test_migrations_create_application_tables():
     assert {
         constraint["name"] for constraint in inspector.get_check_constraints("user_follows")
     } == {"ck_user_follows_not_self"}
+    restaurant_indexes = {
+        index["name"]: index["column_names"] for index in inspector.get_indexes("restaurants")
+    }
+    assert restaurant_indexes["ix_restaurants_search_name_id"] == ["search_name", "id"]
+    assert restaurant_indexes["ix_restaurants_location"] == ["latitude", "longitude"]
 
 
 def test_seeded_user_is_persisted():
@@ -393,6 +398,54 @@ def test_restaurant_collection_pages_by_cursor_and_searches_with_postgresql():
     catalogue = client.get("/api/v1/cuisine-styles")
     assert catalogue.status_code == 200
     assert {style["slug"] for style in catalogue.json()} == {style.slug for style in CUISINE_STYLES}
+
+
+def test_map_rectangle_uses_the_coordinate_index_with_postgresql():
+    client = authenticated_client()
+
+    santiago = client.get("/api/v1/restaurants/map?south=-33.5&west=-70.7&north=-33.4&east=-70.55")
+    valparaiso = client.get("/api/v1/restaurants/map?south=-33.1&west=-71.7&north=-33.0&east=-71.5")
+
+    assert santiago.status_code == 200
+    assert valparaiso.status_code == 200
+    santiago_names = {restaurant["name"] for restaurant in santiago.json()["items"]}
+    valparaiso_names = {restaurant["name"] for restaurant in valparaiso.json()["items"]}
+    assert "Cocina del Barrio" in santiago_names
+    assert "Ancla y Sal" in valparaiso_names
+    assert santiago_names & valparaiso_names == set()
+    assert santiago.json()["truncated"] is False
+
+    empty = client.get("/api/v1/restaurants/map?south=-10&west=-70&north=-5&east=-65")
+    assert empty.status_code == 200
+    assert empty.json() == {"items": [], "truncated": False}
+
+    assert (
+        client.get("/api/v1/restaurants/map?south=-40&west=-80&north=-10&east=-60").status_code
+        == 422
+    )
+    assert (
+        client.get(
+            "/api/v1/restaurants/map?south=-33.0&west=-70.7&north=-33.5&east=-70.5"
+        ).status_code
+        == 422
+    )
+
+    # With a seed of a few rows the planner prefers a sequential scan whatever
+    # indexes exist. Disabling that choice shows whether the query is sargable
+    # against the coordinate index at all, which is what the index is for.
+    with engine.connect() as connection:
+        connection.execute(text("SET enable_seqscan = off"))
+        plan = "\n".join(
+            row[0]
+            for row in connection.execute(
+                text(
+                    "EXPLAIN SELECT id FROM restaurants "
+                    "WHERE latitude BETWEEN -33.5 AND -33.4 "
+                    "AND longitude BETWEEN -70.7 AND -70.55"
+                )
+            )
+        )
+    assert "ix_restaurants_location" in plan
 
 
 def test_restaurant_crud_duplicate_detection_and_atomic_style_replacement():

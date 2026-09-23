@@ -134,6 +134,84 @@ def test_cuisine_style_catalogue_requires_a_session(monkeypatch):
     assert response.json()[0]["slug"] == "chilena"
 
 
+def test_map_answers_a_rectangle_and_announces_truncation(monkeypatch, authenticated):
+    restaurant = sample_restaurant()
+    received = {}
+
+    def restaurants_in_bounds(*, south, west, north, east, limit):
+        received.update(south=south, west=west, north=north, east=east, limit=limit)
+        return restaurant_service.RestaurantMapResult(items=(restaurant,), truncated=True)
+
+    monkeypatch.setattr(restaurant_service, "restaurants_in_bounds", restaurants_in_bounds)
+
+    response = TestClient(app).get(
+        "/api/v1/restaurants/map?south=-33.5&west=-70.7&north=-33.4&east=-70.5&limit=50"
+    )
+
+    assert response.status_code == 200
+    assert received == {
+        "south": -33.5,
+        "west": -70.7,
+        "north": -33.4,
+        "east": -70.5,
+        "limit": 50,
+    }
+    payload = response.json()
+    assert payload["truncated"] is True
+    assert payload["items"][0]["id"] == str(restaurant.id)
+    assert payload["items"][0]["latitude"] == -33.4372
+    assert payload["items"][0]["cuisine_styles"][0]["slug"] == "chilena"
+
+
+def test_map_route_is_not_read_as_a_restaurant_identifier(monkeypatch, authenticated):
+    def unexpected(restaurant_id):
+        raise AssertionError(f"the show route received {restaurant_id}")
+
+    monkeypatch.setattr(restaurant_service, "get_restaurant", unexpected)
+    monkeypatch.setattr(
+        restaurant_service,
+        "restaurants_in_bounds",
+        lambda **kwargs: restaurant_service.RestaurantMapResult(items=(), truncated=False),
+    )
+
+    response = TestClient(app).get(
+        "/api/v1/restaurants/map?south=-33.5&west=-70.7&north=-33.4&east=-70.5"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "truncated": False}
+
+
+def test_map_validates_its_rectangle(monkeypatch, authenticated):
+    client = TestClient(app)
+
+    assert client.get("/api/v1/restaurants/map?south=-33.5&west=-70.7").status_code == 422
+    assert (
+        client.get(
+            "/api/v1/restaurants/map?south=-91&west=-70.7&north=-33.4&east=-70.5"
+        ).status_code
+        == 422
+    )
+
+    monkeypatch.setattr(
+        restaurant_service,
+        "restaurants_in_bounds",
+        lambda **kwargs: (_ for _ in ()).throw(restaurant_service.InvalidMapBoundsError("zoom in")),
+    )
+    too_large = client.get("/api/v1/restaurants/map?south=-40&west=-80&north=-10&east=-60")
+    assert too_large.status_code == 422
+    assert too_large.json()["detail"][0]["loc"] == ["query", "bounds"]
+
+
+def test_map_requires_a_session():
+    assert (
+        TestClient(app)
+        .get("/api/v1/restaurants/map?south=-33.5&west=-70.7&north=-33.4&east=-70.5")
+        .status_code
+        == 401
+    )
+
+
 def test_create_returns_resource_and_location(monkeypatch, authenticated):
     restaurant = sample_restaurant()
     received = {}

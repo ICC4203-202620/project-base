@@ -131,6 +131,7 @@ Todas las rutas de restaurantes requieren esa sesión:
 | Método y path | Resultado |
 | --- | --- |
 | `GET /api/v1/restaurants?q=cocina&limit=20` | Busca por nombre y pagina por cursor. |
+| `GET /api/v1/restaurants/map?south=…&west=…&north=…&east=…` | Restaurantes dentro del rectángulo visible del mapa. |
 | `GET /api/v1/cuisine-styles` | Catálogo de estilos de comida para el formulario de creación. |
 | `POST /api/v1/restaurants` | Crea un restaurante; responde `201` y publica `Location`. |
 | `GET /api/v1/restaurants/{id}` | Consulta un restaurante o responde `404`. |
@@ -158,6 +159,32 @@ API no emitió responde `422` también.
 `GET /api/v1/cuisine-styles` entrega el catálogo completo con `id`, `slug` y
 nombre visible, para que el formulario de creación construya su selector sin
 slugs escritos a mano.
+
+#### Restaurantes del mapa
+
+`GET /api/v1/restaurants/map` responde qué hay dentro del rectángulo que el
+mapa informa: `south`, `west`, `north` y `east` en grados decimales, los
+cuatro obligatorios. Devuelve `{ items, truncated }` con el mismo resumen de
+restaurante de la colección.
+
+**No se pagina.** Un rectángulo es una consulta de mapa, no una lista que se
+recorre: si el resultado no cabe, la respuesta es acercar. `truncated` indica
+que el rectángulo contenía más restaurantes de los que se devolvieron, y la
+interfaz debe pedir un acercamiento en lugar de dibujar un mapa incompleto
+como si estuviera completo. Lo que se devuelve en ese caso es la parte sur del
+rectángulo y no una muestra representativa; por eso el aviso existe.
+
+Un rectángulo cuya arista oeste queda al este de la arista este cruza el
+antimeridiano, y se maneja como dos rangos de longitud. Un rectángulo
+invertido en latitud, una coordenada fuera de rango o un área mayor que cien
+grados cuadrados responden `422`; el último con un mensaje que la interfaz
+puede traducir a «acerca el mapa». Un rectángulo válido sin restaurantes
+responde `200` con `items` vacío, que es distinto de un error.
+
+La cuota de Google Maps es acotada y esta consulta es barata pero no gratis:
+**la interfaz no debe solicitarla en cada movimiento del mapa**. Conviene
+esperar a que el desplazamiento termine y omitir la solicitud cuando el
+rectángulo nuevo está contenido en el que ya se consultó.
 
 Al crear o editar, `cuisine_styles` recibe uno o más slugs existentes. Los datos
 iniciales ofrecen `chilena`, `peruana`, `italiana`, `japonesa`, `india`,

@@ -19,6 +19,16 @@ from app.services.cursors import decode_cursor, encode_cursor
 MINIMUM_SEARCH_LENGTH = 2
 LIKE_ESCAPE = "\\"
 
+# A map view of a city spans fractions of a degree. A hundred square degrees is
+# roughly a thousand kilometres on a side at these latitudes: far more than any
+# reasonable view, and small enough to reject someone who zoomed out to a
+# continent. The measure is deliberately crude, in square degrees: it is a
+# guard, not a measurement of surface.
+MAXIMUM_MAP_AREA_SQUARE_DEGREES = 100.0
+# Shared with the nearby search of #38, so the same map does not behave in two
+# ways depending on whether a style filter is active.
+MAXIMUM_MAP_RESULTS = 200
+
 
 class RestaurantNotFoundError(Exception):
     """The requested restaurant does not exist."""
@@ -40,6 +50,14 @@ class DuplicateRestaurantError(Exception):
 
 class SearchTermTooShortError(Exception):
     """A one-character term would return the whole collection."""
+
+
+class InvalidMapBoundsError(Exception):
+    """The rectangle is malformed, out of range or too large to answer."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
 
 
 class UnknownCuisineStylesError(Exception):
@@ -65,6 +83,20 @@ class CuisineStyle:
 class RestaurantPage:
     items: tuple["Restaurant", ...]
     next_cursor: str | None
+
+
+@dataclass(frozen=True)
+class RestaurantMapResult:
+    """What fits inside a rectangle, and whether something did not.
+
+    A rectangle is a map query and not a list to walk, so it is not paged: if
+    the answer does not fit, the answer is to zoom in. `truncated` is what
+    lets the interface say so instead of drawing an incomplete map as if it
+    were complete.
+    """
+
+    items: tuple["Restaurant", ...]
+    truncated: bool
 
 
 @dataclass(frozen=True)
@@ -214,6 +246,86 @@ def list_cuisine_styles() -> list[CuisineStyle]:
             return [CuisineStyle(id=row["id"], slug=row["slug"], name=row["name"]) for row in rows]
     except SQLAlchemyError as error:
         raise RestaurantStoreError from error
+
+
+def _map_bounds_condition(south: float, west: float, north: float, east: float):
+    """Translate a rectangle into comparisons the coordinate index can serve.
+
+    A rectangle whose west edge lies east of its east edge crosses the
+    antimeridian, and its longitudes are two ranges rather than one. It is a
+    rare case in Chile and a source of inexplicably empty results where it is
+    not.
+    """
+    latitude_within = and_(
+        restaurants.c.latitude >= south,
+        restaurants.c.latitude <= north,
+    )
+    if west <= east:
+        longitude_within = and_(
+            restaurants.c.longitude >= west,
+            restaurants.c.longitude <= east,
+        )
+    else:
+        longitude_within = or_(
+            restaurants.c.longitude >= west,
+            restaurants.c.longitude <= east,
+        )
+    return and_(latitude_within, longitude_within)
+
+
+def _validate_map_bounds(south: float, west: float, north: float, east: float) -> None:
+    """Reject a rectangle here and not only in the schema.
+
+    The rule is part of the use case, and a service that only holds it when
+    HTTP validated first is a rule nobody can test without a request.
+    """
+    if not (-90 <= south <= 90 and -90 <= north <= 90):
+        raise InvalidMapBoundsError("latitude must be between -90 and 90 degrees")
+    if not (-180 <= west <= 180 and -180 <= east <= 180):
+        raise InvalidMapBoundsError("longitude must be between -180 and 180 degrees")
+    if south > north:
+        raise InvalidMapBoundsError("south must not be north of north")
+
+    longitude_span = east - west if west <= east else (180 - west) + (east + 180)
+    if (north - south) * longitude_span > MAXIMUM_MAP_AREA_SQUARE_DEGREES:
+        raise InvalidMapBoundsError(
+            "the rectangle covers more than "
+            f"{MAXIMUM_MAP_AREA_SQUARE_DEGREES:g} square degrees; zoom in"
+        )
+
+
+def restaurants_in_bounds(
+    *,
+    south: float,
+    west: float,
+    north: float,
+    east: float,
+    limit: int,
+) -> RestaurantMapResult:
+    """Answer what restaurants a map rectangle contains.
+
+    Ordered by coordinate, which is the order the index already produces. A
+    truncated answer is therefore the southernmost part of the rectangle and
+    not a representative sample, which is exactly why it is announced: the
+    interface has to ask for a closer view rather than draw it.
+    """
+    _validate_map_bounds(south, west, north, east)
+    statement = (
+        select(restaurants)
+        .where(_map_bounds_condition(south, west, north, east))
+        .order_by(restaurants.c.latitude, restaurants.c.longitude, restaurants.c.id)
+        .limit(limit + 1)
+    )
+
+    try:
+        with engine.connect() as connection:
+            rows = connection.execute(statement).mappings().all()
+            truncated = len(rows) > limit
+            items = _to_restaurants(connection, rows[:limit])
+    except SQLAlchemyError as error:
+        raise RestaurantStoreError from error
+
+    return RestaurantMapResult(items=tuple(items), truncated=truncated)
 
 
 def list_restaurants(*, query: str | None, limit: int, cursor: str | None = None) -> RestaurantPage:

@@ -105,6 +105,16 @@ class RestaurantPage(BaseModel):
     next_cursor: str | None
 
 
+class RestaurantMapResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[RestaurantSummary]
+    # True when the rectangle holds more restaurants than were returned. The
+    # interface must ask for a closer view instead of drawing a partial map as
+    # if it were complete.
+    truncated: bool
+
+
 class RestaurantResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

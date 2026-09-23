@@ -277,6 +277,22 @@ El orden de la colección es alfabético sobre `search_name`, que es la columna
 que el índice sirve, y no por relevancia: un cursor reanuda desde una posición
 que no puede depender del término buscado.
 
+La consulta del mapa se resuelve con comparaciones sobre `latitude` y
+`longitude` y el índice compuesto `ix_restaurants_location`. No se usa
+PostGIS: la entrega 4 migra a Aurora DSQL, que no lo ofrece. Las comparaciones
+quedan sin funciones que envuelvan las columnas, que es la condición para que
+el índice pueda servirlas.
+
+El límite de área se valida en el servicio y no sólo en el schema, para que la
+regla sea comprobable sin HTTP. La medida está en grados cuadrados y es
+deliberadamente burda: es una barrera contra quien se alejó hasta ver un
+continente, no una medición de superficie.
+
+`truncated` se determina pidiendo un resultado más que el límite, sin contar
+la tabla. El orden es por coordenada, que es el que el índice ya produce, de
+modo que una respuesta truncada es la parte sur del rectángulo y no una
+muestra representativa. Esa es precisamente la razón de anunciarla.
+
 La migración `0100` copia la normalización en lugar de importarla del
 servicio. Una migración registra lo que se calculó cuando corrió; importar
 código de aplicación dejaría que un cambio posterior a esa función redefina el
