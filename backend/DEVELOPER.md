@@ -389,6 +389,58 @@ evoluciones posteriores. El header `Location` apunta a
 `/api/v1/reviews/{id}`, implementado por el router de feed como recurso de
 detalle.
 
+## Perfil de usuario y regla de visibilidad
+
+`app/services/users.py` es donde vive la regla de visibilidad del proyecto, y
+las épicas que agreguen clases de actividad deben respetarla sin volver a
+discutirla: **el observador llega desde la sesión y el servicio devuelve sólo
+lo que esa persona puede ver**. El cliente no filtra. Un cliente que filtra ya
+recibió lo que debía ocultarse.
+
+La regla se aplica antes de paginar y antes de contar. Filtrar después de
+limitar devuelve páginas cortas que el cliente no puede distinguir del final
+de la colección; contar sin filtrar delata la existencia de lo que no se
+muestra. Por eso el contador de actividad de un perfil coincide siempre con lo
+que el mismo observador puede listar.
+
+El perfil se resuelve en una sola consulta. Los tres contadores y las dos
+direcciones del seguimiento son subconsultas correlacionadas sobre `users`, no
+una consulta por dato. El handle se normaliza con la función de la épica 1, de
+modo que `@Demo`, `demo` y `DEMO` resuelven al mismo perfil.
+
+La actividad resuelve primero el handle y después consulta. Son dos viajes
+deliberados: filtrar por el handle dentro del join devolvería una página vacía
+para un handle inexistente, que no es la misma respuesta que `404`.
+
+### El envelope de actividad
+
+`app/services/activity.py` construye el envelope que comparten el feed y el
+perfil: `type`, `occurred_at`, `published_at` y el objeto bajo una clave
+llamada como su tipo. Una pantalla recorre actividad sin saber qué clases
+existen, y una clase nueva no reinterpreta los campos anteriores.
+
+Los dos instantes no son redundantes. Coinciden para una reseña, que se
+publica cuando se escribe, pero la visita de la épica 7 trae un momento que el
+usuario informa y que puede estar en el pasado. El perfil ordena por
+`occurred_at` porque es la cronología de esa persona; el feed ordena por
+`published_at` porque registrar hoy una visita de hace un mes no debe dejarla
+enterrada un mes atrás en el feed de quienes siguen a su autor.
+
+`review_activity_statement` incorpora la condición de visibilidad, y no la
+deja al llamador: ninguna consulta puede olvidarla. Los llamadores sólo
+restringen más —por autor, por seguimiento—. Cada épica que agregue una clase
+de actividad agrega aquí su fuente.
+
+### Cursores
+
+`app/services/cursors.py` codifica la clave de orden de la última fila que el
+cliente recibió. El valor es opaco a propósito: su contenido pertenece a la
+consulta que lo emitió, y un cliente que lo interprete queda atado a ella.
+Base64url lo hace utilizable dentro de un query string.
+
+El códec vive fuera del feed porque el perfil lo usa con otra clave de orden,
+y las colecciones de restaurantes lo usarán con una clave que no es temporal.
+
 ## Configuración
 
 `app/core/config.py` define `Settings`, que hereda de `BaseSettings`. Pydantic

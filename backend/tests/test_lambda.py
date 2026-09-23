@@ -281,7 +281,14 @@ def test_lambda_handler_serves_feed_and_review_detail(monkeypatch):
         feed_service,
         "get_feed",
         lambda viewer_id, **kwargs: {
-            "items": [{"type": "review", "occurred_at": timestamp, "review": review}],
+            "items": [
+                {
+                    "type": "review",
+                    "occurred_at": timestamp,
+                    "published_at": timestamp,
+                    "review": review,
+                }
+            ],
             "next_cursor": None,
         },
     )

@@ -1,3 +1,5 @@
+"""Response models for the activity envelope, shared by the feed and profiles."""
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -17,30 +19,31 @@ class RestaurantSummary(BaseModel):
     address: str
 
 
-class FeedPhoto(BaseModel):
+class ActivityPhoto(BaseModel):
     id: UUID
     content_type: str
     content_url: str
 
 
-class FeedReview(BaseModel):
+class ActivityReview(BaseModel):
     id: UUID
     dish_name: str
     text: str
     visibility: Literal["public", "private"]
     author: UserSummary
     restaurant: RestaurantSummary
-    photo: FeedPhoto
+    photo: ActivityPhoto
     created_at: datetime
     updated_at: datetime
 
 
-class FeedActivity(BaseModel):
+class Activity(BaseModel):
     type: Literal["review"]
     occurred_at: datetime
-    review: FeedReview
+    published_at: datetime
+    review: ActivityReview
 
 
-class FeedPage(BaseModel):
-    items: list[FeedActivity]
+class ActivityPage(BaseModel):
+    items: list[Activity]
     next_cursor: str | None

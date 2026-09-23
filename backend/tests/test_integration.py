@@ -490,6 +490,44 @@ def test_review_upload_persists_metadata_and_local_photo(tmp_path):
         app.dependency_overrides.clear()
 
 
+def test_profile_and_activity_apply_visibility_with_postgresql():
+    owner, author = DEMO_USERS[0], DEMO_USERS[1]
+    owner_client, author_client = TestClient(app), TestClient(app)
+    for client, user in ((owner_client, owner), (author_client, author)):
+        assert (
+            client.post(
+                "/api/v1/auth/login",
+                headers={"Origin": "http://testserver"},
+                json={"email": user.email, "password": user.password},
+            ).status_code
+            == 204
+        )
+
+    own_profile = owner_client.get(f"/api/v1/users/{owner.handle.upper()}").json()
+    own_activity = owner_client.get(f"/api/v1/users/{owner.handle}/activity").json()
+    seen_profile = author_client.get(f"/api/v1/users/{owner.handle}").json()
+    seen_activity = author_client.get(f"/api/v1/users/{owner.handle}/activity").json()
+
+    private_review = next(fixture for fixture in REVIEW_FIXTURES if fixture.visibility == "private")
+    own_ids = {item["review"]["id"] for item in own_activity["items"]}
+    seen_ids = {item["review"]["id"] for item in seen_activity["items"]}
+
+    assert own_profile["handle"] == owner.handle
+    assert own_profile["nationality"] == {"code": "CL", "name": "Chile"}
+    # Other tests in this module publish reviews as this same user, so the
+    # assertions compare what each observer gets rather than fixed contents.
+    assert str(private_review.id) in own_ids
+    assert str(private_review.id) not in seen_ids
+    assert seen_ids < own_ids
+    assert own_profile["counters"]["activity"] == len(own_activity["items"])
+    assert seen_profile["counters"]["activity"] == len(seen_activity["items"])
+    assert seen_profile["counters"]["activity"] < own_profile["counters"]["activity"]
+    assert seen_profile["viewer"] == {"is_self": False, "following": False, "followed_by": True}
+
+    assert owner_client.get("/api/v1/users/nadie_aqui").status_code == 404
+    assert owner_client.get(f"/api/v1/users/{owner.handle}/activity?cursor=roto").status_code == 422
+
+
 def test_seeded_feed_and_review_detail_work_with_postgresql():
     client = authenticated_client()
 

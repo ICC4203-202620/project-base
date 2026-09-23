@@ -283,6 +283,60 @@ restaurantes son estables: ejecutarlo nuevamente no duplica filas ni reemplaza
 cambios hechos por un estudiante. La configuración rechaza explícitamente el
 seed en `ENVIRONMENT=production`.
 
+### Perfil de usuario y actividad
+
+| Método y path | Resultado |
+| --- | --- |
+| `GET /api/v1/users/{handle}` | Perfil de una persona, tal como la sesión puede verlo. |
+| `GET /api/v1/users/{handle}/activity` | Su actividad, paginada por cursor. |
+
+Ambas rutas requieren sesión y aceptan el handle como el usuario lo escribe:
+`demo`, `@demo` y `DEMO` resuelven al mismo perfil. Un handle que no existe
+responde `404`, y no una página vacía: son respuestas distintas.
+
+**La misma URL devuelve cosas distintas según quién pregunta.** El backend
+recibe la identidad del observador desde la cookie y entrega sólo lo que esa
+persona puede ver. Una reseña privada aparece en el perfil de su autor y en
+ninguna otra vista. El cliente no filtra nada: si filtrara, ya habría recibido
+lo que debía ocultarse.
+
+Los contadores siguen la misma regla. El dueño ve contada su actividad
+completa; otra persona ve contada sólo la pública, de modo que el contador
+coincide siempre con lo que esa persona puede listar. Un contador que
+incluyera actividad privada ajena delataría su existencia sin mostrarla.
+
+El perfil trae además la relación del observador con esa persona —si la sigue,
+si es seguido por ella, si es su propio perfil— para que la interfaz decida
+entre «Seguir» y «Siguiendo» sin una segunda solicitud. La acción de seguir
+llega con la épica 13; aquí sólo se informa el estado.
+
+La actividad usa el mismo envelope del feed y se pagina por cursor opaco:
+
+```json
+{
+  "items": [
+    {
+      "type": "review",
+      "occurred_at": "2026-08-18T12:00:00Z",
+      "published_at": "2026-08-18T12:00:00Z",
+      "review": { "...": "..." }
+    }
+  ],
+  "next_cursor": null
+}
+```
+
+`occurred_at` es cuándo ocurrió la actividad y `published_at` cuándo se
+publicó. Hoy coinciden, porque una reseña se publica cuando se escribe, pero
+la visita de la épica 7 traerá un momento que el usuario informa y que puede
+estar en el pasado. El perfil ordena por `occurred_at`, que es la cronología
+de esa persona; el feed ordena por `published_at`. Un cursor que esta API no
+emitió responde `422`.
+
+Cada épica posterior agrega su clase de actividad a este mismo endpoint, con
+su propio `type` y su objeto bajo esa clave. Un cliente que recorre la lista
+no necesita saber cuáles existen.
+
 Para detener los servicios conservando los datos locales:
 
 ```console

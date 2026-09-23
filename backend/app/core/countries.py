@@ -273,7 +273,8 @@ COUNTRIES: tuple[Country, ...] = (
     Country("ZW", "Zimbabue"),
 )
 
-COUNTRY_CODES: frozenset[str] = frozenset(country.code for country in COUNTRIES)
+COUNTRY_NAMES: dict[str, str] = {country.code: country.name for country in COUNTRIES}
+COUNTRY_CODES: frozenset[str] = frozenset(COUNTRY_NAMES)
 
 
 def normalize_country_code(value: str) -> str:
@@ -283,3 +284,12 @@ def normalize_country_code(value: str) -> str:
 
 def is_known_country(code: str) -> bool:
     return normalize_country_code(code) in COUNTRY_CODES
+
+
+def country_name(code: str) -> str | None:
+    """Return the name of a country, or None when the code is not in the catalogue.
+
+    A row written before this catalogue existed may hold anything, and a
+    profile still has to render.
+    """
+    return COUNTRY_NAMES.get(normalize_country_code(code))

@@ -14,6 +14,7 @@ from app.db.schema import metadata
 from app.main import app
 from app.services import feed as feed_service
 from app.services.auth import AuthenticatedSession
+from app.services.cursors import InvalidCursorError
 from app.services.reviews import ReviewNotFoundError, ReviewStoreError
 
 
@@ -86,7 +87,7 @@ def test_feed_cursor_pages_are_stable_and_invalid_cursor_is_rejected(seeded_data
     assert len(seen) == len(set(seen))
     assert cursor is None
     assert feed_service.get_feed(DEMO_USERS[0].id, limit=1, cursor=None)["items"]
-    with pytest.raises(feed_service.InvalidFeedCursorError):
+    with pytest.raises(InvalidCursorError):
         feed_service.get_feed(DEMO_USERS[0].id, limit=1, cursor="not-a-cursor")
 
 
@@ -136,7 +137,7 @@ def test_feed_routes_validate_and_map_domain_errors(monkeypatch):
         monkeypatch.setattr(
             feed_service,
             "get_feed",
-            lambda *args, **kwargs: (_ for _ in ()).throw(feed_service.InvalidFeedCursorError()),
+            lambda *args, **kwargs: (_ for _ in ()).throw(InvalidCursorError()),
         )
         assert client.get("/api/v1/feed?cursor=invalid").status_code == 422
 

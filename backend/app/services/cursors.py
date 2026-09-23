@@ -1,0 +1,48 @@
+"""Opaque cursors for keyset pagination.
+
+A cursor carries the sort key of the last row a client received, so the next
+page resumes from it instead of counting rows. Offset pagination repeats and
+skips rows while other people write, and every collection of this API is
+written to while it is read.
+
+The value is opaque on purpose: clients must not build one or read one,
+because its contents belong to the query that issued it. Base64url keeps it
+usable inside a query string.
+
+The key is a timestamp and a UUID, which is what orders activity. #36 needs
+the same envelope over a non-temporal key and generalizes it there.
+"""
+
+import base64
+import json
+from datetime import UTC, datetime
+from uuid import UUID
+
+
+class InvalidCursorError(Exception):
+    """The supplied cursor was not produced by this API."""
+
+
+def utc_timestamp(value: datetime) -> datetime:
+    """Read a timestamp as UTC whether or not the driver kept its zone."""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def encode_cursor(timestamp: datetime, identifier: UUID) -> str:
+    value = json.dumps(
+        {"at": utc_timestamp(timestamp).isoformat(), "id": str(identifier)}
+    ).encode()
+    return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+
+def decode_cursor(cursor: str) -> tuple[datetime, UUID]:
+    try:
+        decoded = base64.urlsafe_b64decode(cursor + "=" * (-len(cursor) % 4))
+        value = json.loads(decoded)
+        timestamp = datetime.fromisoformat(value["at"])
+        identifier = UUID(value["id"])
+        if timestamp.tzinfo is None:
+            raise ValueError
+        return timestamp.astimezone(UTC), identifier
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise InvalidCursorError from error
