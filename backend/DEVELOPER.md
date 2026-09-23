@@ -486,7 +486,27 @@ La actividad resuelve primero el handle y después consulta. Son dos viajes
 deliberados: filtrar por el handle dentro del join devolvería una página vacía
 para un handle inexistente, que no es la misma respuesta que `404`.
 
-### El envelope de actividad
+### El envelope de actividad y cómo se agrega una clase
+
+`app/services/activity.py` describe cada clase de actividad como un
+`ActivitySource`: qué columnas llevan su autor, su restaurante, su visibilidad
+y sus dos instantes, y cómo convertir un conjunto de identificadores en
+envelopes. **No guarda una consulta**: el feed y el perfil arman las suyas a
+partir de esa descripción, de modo que una clase nueva es una entrada más en
+`ACTIVITY_SOURCES` y nada más.
+
+La lectura ocurre en dos pasos a propósito. Primero se unen en SQL las claves
+de orden de todos los orígenes, se ordenan y se cortan, que es lo que hace que
+una página cueste una consulta acotada por muchas clases que existan. Recién
+entonces se leen las filas de las clases que compusieron esa página, una
+consulta por clase. Traer páginas completas de cada origen para ordenarlas en
+Python multiplicaría el trabajo de cada página por el número de clases.
+
+La deduplicación por doble seguimiento sobrevive al cambio porque la condición
+sigue siendo una unión lógica dentro de cada origen, y no dos listas
+concatenadas.
+
+### Los dos instantes del envelope
 
 `app/services/activity.py` construye el envelope que comparten el feed y el
 perfil: `type`, `occurred_at`, `published_at` y el objeto bajo una clave

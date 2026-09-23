@@ -11,15 +11,17 @@ back short and a counter never promises rows the list will not produce.
 
 from dataclasses import dataclass
 from datetime import datetime
+from functools import reduce
+from operator import add
 from uuid import UUID
 
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import and_, desc, func, or_, select, union_all
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.countries import country_name
-from app.db.schema import reviews, user_follows, users
+from app.db.schema import user_follows, users
 from app.db.session import engine
-from app.services.activity import review_activity_item, review_activity_statement
+from app.services.activity import ACTIVITY_SOURCES, ActivitySource, hydrate
 from app.services.auth import normalize_handle
 from app.services.cursors import decode_time_cursor, encode_time_cursor, utc_timestamp
 from app.services.visibility import PUBLIC
@@ -73,13 +75,21 @@ class Profile:
 def _profile_statement(handle: str, viewer_id: UUID):
     # Correlated on users, so the whole profile is one round trip instead of
     # one query per counter.
-    visible_activity = or_(reviews.c.visibility == PUBLIC, users.c.id == viewer_id)
-    activity_count = (
-        select(func.count())
-        .select_from(reviews)
-        .where(reviews.c.author_id == users.c.id, visible_activity)
-        .correlate(users)
-        .scalar_subquery()
+    # One count per class of activity, added together, so a class that arrives
+    # later is one more entry in the registry and nothing else here.
+    activity_count = reduce(
+        add,
+        (
+            select(func.count())
+            .select_from(source.identifier.table)
+            .where(
+                source.author_id == users.c.id,
+                or_(source.visibility == PUBLIC, users.c.id == viewer_id),
+            )
+            .correlate(users)
+            .scalar_subquery()
+            for source in ACTIVITY_SOURCES
+        ),
     )
     followers_count = (
         select(func.count())
@@ -163,12 +173,25 @@ def get_profile(handle: str, *, viewer_id: UUID) -> Profile:
     )
 
 
+def _profile_keys(source: ActivitySource, author_id: UUID, viewer_id: UUID, cursor: str | None):
+    keys = source.keys(viewer_id).where(source.author_id == author_id)
+    if cursor:
+        occurred_at, activity_id = decode_time_cursor(cursor)
+        keys = keys.where(
+            or_(
+                source.occurred_at < occurred_at,
+                and_(source.occurred_at == occurred_at, source.identifier < activity_id),
+            )
+        )
+    return keys
+
+
 def get_activity(handle: str, *, viewer_id: UUID, limit: int, cursor: str | None = None) -> dict:
     """Page the activity of one profile, newest first.
 
     A profile is the chronology of that person, so it orders by when the
     activity happened. The feed orders by when it was published, which is a
-    different question.
+    different question, and both read the same sources.
     """
     normalized_handle = normalize_handle(handle)
     try:
@@ -181,34 +204,32 @@ def get_activity(handle: str, *, viewer_id: UUID, limit: int, cursor: str | None
             if author_id is None:
                 raise UserNotFoundError
 
-            statement = review_activity_statement(viewer_id).where(reviews.c.author_id == author_id)
-            if cursor:
-                occurred_at, activity_id = decode_time_cursor(cursor)
-                statement = statement.where(
-                    or_(
-                        reviews.c.created_at < occurred_at,
-                        and_(reviews.c.created_at == occurred_at, reviews.c.id < activity_id),
-                    )
+            combined = union_all(
+                *(
+                    _profile_keys(source, author_id, viewer_id, cursor)
+                    for source in ACTIVITY_SOURCES
                 )
-            rows = (
+            ).subquery("activity")
+            keys = (
                 connection.execute(
-                    statement.order_by(desc(reviews.c.created_at), desc(reviews.c.id)).limit(
-                        limit + 1
-                    )
+                    select(combined)
+                    .order_by(desc(combined.c.occurred_at), desc(combined.c.id))
+                    .limit(limit + 1)
                 )
                 .mappings()
                 .all()
             )
+            has_next = len(keys) > limit
+            keys = keys[:limit]
+            items = hydrate(connection, viewer_id, keys)
     except UserNotFoundError:
         raise
     except SQLAlchemyError as error:
         raise UserStoreError from error
 
-    has_next = len(rows) > limit
-    rows = rows[:limit]
     return {
-        "items": [review_activity_item(row) for row in rows],
-        "next_cursor": encode_time_cursor(rows[-1]["created_at"], rows[-1]["id"])
+        "items": items,
+        "next_cursor": encode_time_cursor(keys[-1]["occurred_at"], keys[-1]["id"])
         if has_next
         else None,
     }

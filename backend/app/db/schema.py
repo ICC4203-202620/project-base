@@ -167,6 +167,30 @@ Index(
     photos.c.id,
 )
 
+visits = Table(
+    "visits",
+    metadata,
+    Column("id", Uuid(as_uuid=True), primary_key=True),
+    # Aurora DSQL does not support foreign keys. The service checks that the
+    # restaurant exists in the same transaction that persists the visit.
+    Column("author_id", Uuid(as_uuid=True), nullable=False),
+    Column("restaurant_id", Uuid(as_uuid=True), nullable=False),
+    # When the person was there, which they report and may be in the past.
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("visibility", String(16), nullable=False),
+    # When it was published, which is what reaches their followers.
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+Index("ix_visits_author_occurred_id", visits.c.author_id, visits.c.occurred_at, visits.c.id)
+Index(
+    "ix_visits_restaurant_occurred_id",
+    visits.c.restaurant_id,
+    visits.c.occurred_at,
+    visits.c.id,
+)
+Index("ix_visits_visibility_created_id", visits.c.visibility, visits.c.created_at, visits.c.id)
+
 reviews = Table(
     "reviews",
     metadata,

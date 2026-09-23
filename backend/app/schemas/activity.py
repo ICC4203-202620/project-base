@@ -44,11 +44,22 @@ class ActivityReview(BaseModel):
     updated_at: datetime
 
 
+class ActivityVisit(BaseModel):
+    id: UUID
+    occurred_at: datetime
+    visibility: Literal["public", "private"]
+    author: UserSummary
+    restaurant: ActivityRestaurant
+    created_at: datetime
+
+
 class Activity(BaseModel):
-    type: Literal["review"]
+    type: Literal["review", "visit"]
     occurred_at: datetime
     published_at: datetime
-    review: ActivityReview
+    # Exactly one of these carries the activity, named after its type.
+    review: ActivityReview | None = None
+    visit: ActivityVisit | None = None
 
 
 class ActivityPage(BaseModel):

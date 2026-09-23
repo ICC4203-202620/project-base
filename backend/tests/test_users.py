@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_current_session
 from app.db import seed as seed_module
-from app.db.fixtures import DEMO_USERS, REVIEW_FIXTURES
+from app.db.fixtures import DEMO_USERS, REVIEW_FIXTURES, VISIT_FIXTURES
 from app.db.schema import metadata, users
 from app.main import app
 from app.services import users as user_service
@@ -59,21 +59,23 @@ def session(user_index=0):
 
 
 def activity_ids(page):
-    return [item["review"]["id"] for item in page["items"]]
+    return [item[item["type"]]["id"] for item in page["items"]]
 
 
 def test_owner_sees_private_activity_and_counts_it(seeded_database):
     del seeded_database
     private_review = REVIEW_FIXTURES[2]
+    private_visit = VISIT_FIXTURES[1]
 
     profile = user_service.get_profile(OWNER.handle, viewer_id=OWNER.id)
     page = user_service.get_activity(OWNER.handle, viewer_id=OWNER.id, limit=20)
 
     assert profile.handle == OWNER.handle
     assert profile.name == OWNER.name
-    assert profile.counters.activity == 1
-    assert activity_ids(page) == [private_review.id]
-    assert page["items"][0]["review"]["visibility"] == "private"
+    assert profile.counters.activity == 2
+    assert activity_ids(page) == [private_review.id, private_visit.id]
+    assert all(item[item["type"]]["visibility"] == "private" for item in page["items"])
+    assert {item["type"] for item in page["items"]} == {"review", "visit"}
     assert profile.viewer.is_self is True
 
 
@@ -103,10 +105,15 @@ def test_activity_envelope_carries_both_instants(seeded_database):
     del seeded_database
 
     page = user_service.get_activity(AUTHOR.handle, viewer_id=OWNER.id, limit=20)
-    item = page["items"][0]
+    review = page["items"][0]
+    backdated_visit = page["items"][-1]
 
-    assert item["type"] == "review"
-    assert item["occurred_at"] == item["published_at"] == item["review"]["created_at"]
+    assert review["type"] == "review"
+    assert review["occurred_at"] == review["published_at"] == review["review"]["created_at"]
+    # A visit recorded long after it happened keeps both instants apart, and
+    # the profile places it by the first one.
+    assert backdated_visit["type"] == "visit"
+    assert backdated_visit["occurred_at"] < backdated_visit["published_at"]
 
 
 def test_profile_resolves_the_nationality_and_the_join_date(seeded_database):
@@ -131,7 +138,7 @@ def test_handle_is_resolved_however_it_is_written(seeded_database):
         profile = user_service.get_profile(written, viewer_id=OWNER.id)
         page = user_service.get_activity(written, viewer_id=OWNER.id, limit=20)
         assert profile.handle == AUTHOR.handle, written
-        assert len(page["items"]) == 2, written
+        assert len(page["items"]) == 4, written
 
 
 def test_unknown_handle_is_not_an_empty_profile(seeded_database):
@@ -186,7 +193,14 @@ def test_follow_state_is_reported_in_both_directions(seeded_database):
 
 def test_activity_pages_are_stable_and_reject_a_foreign_cursor(seeded_database):
     del seeded_database
-    expected = [REVIEW_FIXTURES[0].id, REVIEW_FIXTURES[1].id]
+    # Ordered by when each activity happened, which is what a profile is. The
+    # backdated visit comes last here and first in the feed.
+    expected = [
+        REVIEW_FIXTURES[0].id,
+        VISIT_FIXTURES[0].id,
+        REVIEW_FIXTURES[1].id,
+        VISIT_FIXTURES[3].id,
+    ]
     seen = []
     cursor = None
 
@@ -264,5 +278,5 @@ def test_profile_response_shape_is_what_the_interface_needs(seeded_database, mon
     payload = response.json()
     assert payload["handle"] == AUTHOR.handle
     assert payload["nationality"] == {"code": "AR", "name": "Argentina"}
-    assert payload["counters"] == {"activity": 2, "followers": 1, "following": 0}
+    assert payload["counters"] == {"activity": 4, "followers": 1, "following": 0}
     assert payload["viewer"] == {"is_self": False, "following": True, "followed_by": False}
