@@ -8,14 +8,23 @@ from typing import Any, cast
 from unicodedata import combining, normalize
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, insert, or_, select, update
+from sqlalchemy import and_, delete, func, insert, or_, select, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.db.retry import run_transaction_with_retry
-from app.db.schema import cuisine_styles, restaurant_cuisine_styles, restaurants
+from app.db.schema import (
+    cuisine_styles,
+    photos,
+    restaurant_cuisine_styles,
+    restaurant_follows,
+    restaurants,
+    reviews,
+)
 from app.db.session import engine
 from app.services.cursors import decode_cursor, encode_cursor
+from app.services.photos import visible_photo_condition
+from app.services.visibility import PUBLIC
 
 MINIMUM_SEARCH_LENGTH = 2
 LIKE_ESCAPE = "\\"
@@ -137,6 +146,60 @@ class NearbyRestaurant:
 class RestaurantNearbyResult:
     items: tuple[NearbyRestaurant, ...]
     truncated: bool
+
+
+@dataclass(frozen=True)
+class CriterionAverage:
+    criterion: str
+    average: float
+
+
+@dataclass(frozen=True)
+class RatingSummary:
+    """What the page shows about the evaluations a restaurant received.
+
+    Declared now and filled by épica 11. Fixing the shape once means the
+    client that reads it today keeps working when the numbers arrive.
+    """
+
+    criteria: tuple[CriterionAverage, ...]
+    average: float | None
+    total: int
+
+
+@dataclass(frozen=True)
+class RestaurantCounters:
+    """What the viewer can see, not what exists.
+
+    A counter that included someone else's private activity would announce its
+    existence without showing it.
+    """
+
+    photos: int
+    reviews: int
+    evaluations: int
+    visits: int
+    followers: int
+
+
+@dataclass(frozen=True)
+class RestaurantViewerRelationship:
+    following: bool
+
+
+@dataclass(frozen=True)
+class RestaurantDetail:
+    id: UUID
+    name: str
+    address: str
+    latitude: Decimal
+    longitude: Decimal
+    cuisine_styles: tuple[CuisineStyle, ...]
+    created_at: datetime
+    updated_at: datetime
+    counters: RestaurantCounters
+    ratings: RatingSummary
+    viewer: RestaurantViewerRelationship
 
 
 @dataclass(frozen=True)
@@ -576,6 +639,102 @@ def list_restaurants(*, query: str | None, limit: int, cursor: str | None = None
     return RestaurantPage(
         items=tuple(items),
         next_cursor=(encode_cursor(rows[-1]["search_name"], rows[-1]["id"]) if has_next else None),
+    )
+
+
+def _evaluation_summary(connection: Connection, restaurant_id: UUID) -> RatingSummary:
+    """The single point épica 11 fills.
+
+    It is identified on purpose: when evaluations exist, only this function
+    changes, and neither the router nor the shape of the response does.
+    """
+    del connection, restaurant_id
+    return RatingSummary(criteria=(), average=None, total=0)
+
+
+def _restaurant_counters_statement(restaurant_id: UUID, viewer_id: UUID):
+    # Correlated subqueries in a single round trip, rather than one query per
+    # counter. The visibility rule is applied inside each count, so a counter
+    # never promises rows the corresponding list would not produce.
+    visible_photos = (
+        select(func.count())
+        .select_from(photos)
+        .where(photos.c.restaurant_id == restaurant_id, visible_photo_condition(viewer_id))
+        .scalar_subquery()
+    )
+    visible_reviews = (
+        select(func.count())
+        .select_from(reviews)
+        .where(
+            reviews.c.restaurant_id == restaurant_id,
+            or_(reviews.c.visibility == PUBLIC, reviews.c.author_id == viewer_id),
+        )
+        .scalar_subquery()
+    )
+    followers = (
+        select(func.count())
+        .select_from(restaurant_follows)
+        .where(restaurant_follows.c.restaurant_id == restaurant_id)
+        .scalar_subquery()
+    )
+    viewer_follows = (
+        select(restaurant_follows.c.user_id)
+        .where(
+            restaurant_follows.c.user_id == viewer_id,
+            restaurant_follows.c.restaurant_id == restaurant_id,
+        )
+        .exists()
+    )
+    return select(
+        visible_photos.label("photos_count"),
+        visible_reviews.label("reviews_count"),
+        followers.label("followers_count"),
+        viewer_follows.label("viewer_follows"),
+    )
+
+
+def get_restaurant_detail(restaurant_id: UUID, *, viewer_id: UUID) -> RestaurantDetail:
+    """The restaurant page: everything it needs to present itself, minus the gallery.
+
+    The gallery has its own endpoint because it grows without bound with the
+    activity of the restaurant. What is here does not: every block below costs
+    one bounded query, and none depends on the size of that history.
+    """
+    try:
+        with engine.connect() as connection:
+            restaurant = _get_restaurant(connection, restaurant_id)
+            counters = (
+                connection.execute(_restaurant_counters_statement(restaurant_id, viewer_id))
+                .mappings()
+                .one()
+            )
+            ratings = _evaluation_summary(connection, restaurant_id)
+    except RestaurantNotFoundError:
+        raise
+    except SQLAlchemyError as error:
+        raise RestaurantStoreError from error
+
+    return RestaurantDetail(
+        id=restaurant.id,
+        name=restaurant.name,
+        address=restaurant.address,
+        latitude=restaurant.latitude,
+        longitude=restaurant.longitude,
+        cuisine_styles=restaurant.cuisine_styles,
+        created_at=restaurant.created_at,
+        updated_at=restaurant.updated_at,
+        counters=RestaurantCounters(
+            photos=counters["photos_count"],
+            reviews=counters["reviews_count"],
+            # Visits arrive with épica 7 and evaluations with épica 11. The
+            # evaluation counter reports what the summary aggregates, which is
+            # the public evaluations, so both numbers agree on the same screen.
+            evaluations=ratings.total,
+            visits=0,
+            followers=counters["followers_count"],
+        ),
+        ratings=ratings,
+        viewer=RestaurantViewerRelationship(following=bool(counters["viewer_follows"])),
     )
 
 

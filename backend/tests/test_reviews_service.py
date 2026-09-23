@@ -208,6 +208,8 @@ def test_resolve_photo_applies_visibility_and_uses_storage(monkeypatch, tmp_path
                 storage_key="photos/private.png",
                 content_type="image/png",
                 size_bytes=12,
+                visibility="private",
+                kind="dish",
                 created_at=timestamp,
             )
         )

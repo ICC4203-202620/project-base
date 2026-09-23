@@ -26,6 +26,7 @@ from app.db.schema import (
 )
 from app.db.session import engine
 from app.media.storage import MediaStorage, get_media_storage
+from app.services.photos import DISH
 from app.services.restaurants import (
     normalize_restaurant_search_text,
     normalize_restaurant_text,
@@ -228,6 +229,10 @@ def _seed_feed_fixtures(
                 storage_key=storage_key,
                 content_type=fixture.content_type,
                 size_bytes=asset_path.stat().st_size,
+                # A photograph published together with its review carries the
+                # visibility the review was published under.
+                visibility=fixture.visibility,
+                kind=DISH,
                 created_at=fixture.created_at,
             )
         )

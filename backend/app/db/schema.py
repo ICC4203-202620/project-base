@@ -150,12 +150,22 @@ photos = Table(
     Column("storage_key", String(512), nullable=False),
     Column("content_type", String(64), nullable=False),
     Column("size_bytes", BigInteger(), nullable=False),
+    # A photograph is published activity in its own right, so its visibility
+    # is its own and not deduced from a review it may not have.
+    Column("visibility", String(16), nullable=False),
+    # dish, menu or venue. Only dish is accepted until épicas 8 and 9.
+    Column("kind", String(16), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
 Index("uq_photos_storage_key", photos.c.storage_key, unique=True)
 Index("ix_photos_author_id", photos.c.author_id)
-Index("ix_photos_restaurant_id", photos.c.restaurant_id)
+Index(
+    "ix_photos_restaurant_created_id",
+    photos.c.restaurant_id,
+    photos.c.created_at,
+    photos.c.id,
+)
 
 reviews = Table(
     "reviews",

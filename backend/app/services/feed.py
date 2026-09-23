@@ -11,7 +11,8 @@ from app.services.activity import (
     review_object,
 )
 from app.services.cursors import decode_time_cursor, encode_time_cursor
-from app.services.reviews import PUBLIC_VISIBILITY, ReviewNotFoundError, ReviewStoreError
+from app.services.reviews import ReviewNotFoundError, ReviewStoreError
+from app.services.visibility import PUBLIC
 
 
 def _followed_statement(viewer_id: UUID):
@@ -37,7 +38,7 @@ def _followed_statement(viewer_id: UUID):
 def get_feed(viewer_id: UUID, *, limit: int, cursor: str | None = None) -> dict:
     # The feed orders by the instant of publication, which for a review is the
     # instant it was written.
-    statement = _followed_statement(viewer_id).where(reviews.c.visibility == PUBLIC_VISIBILITY)
+    statement = _followed_statement(viewer_id).where(reviews.c.visibility == PUBLIC)
     if cursor:
         published_at, review_id = decode_time_cursor(cursor)
         statement = statement.where(

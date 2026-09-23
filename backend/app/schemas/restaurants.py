@@ -139,3 +139,70 @@ class RestaurantResponse(BaseModel):
     cuisine_styles: list[CuisineStyleResponse]
     created_at: datetime
     updated_at: datetime
+
+
+class CriterionAverageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    criterion: str
+    average: float
+
+
+class RatingSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    criteria: list[CriterionAverageResponse]
+    # Null until there are evaluations to average, which arrive with épica 11.
+    average: float | None
+    total: int
+
+
+class RestaurantCountersResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    photos: int
+    reviews: int
+    evaluations: int
+    visits: int
+    followers: int
+
+
+class RestaurantViewerResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    following: bool
+
+
+class RestaurantDetailResponse(RestaurantResponse):
+    # These three depend on who is asking: a counter only reports what that
+    # person could also list.
+    counters: RestaurantCountersResponse
+    ratings: RatingSummaryResponse
+    viewer: RestaurantViewerResponse
+
+
+class RestaurantPhotoAuthorResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    handle: str
+    name: str
+
+
+class RestaurantPhotoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    author: RestaurantPhotoAuthorResponse
+    kind: str
+    visibility: str
+    created_at: datetime
+    content_url: str
+    review_id: UUID | None
+
+
+class RestaurantPhotoPage(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[RestaurantPhotoResponse]
+    next_cursor: str | None

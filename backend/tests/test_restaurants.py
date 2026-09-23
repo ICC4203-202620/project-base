@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.api.dependencies import get_current_session
 from app.main import app
+from app.services import photos as photo_service
 from app.services import restaurants as restaurant_service
 from app.services.auth import AuthenticatedSession
 from app.services.cursors import InvalidCursorError
@@ -319,6 +320,41 @@ def test_nearby_requires_a_session():
     )
 
 
+def test_detail_and_gallery_map_their_domain_errors(monkeypatch, authenticated):
+    restaurant_id = uuid4()
+    client = TestClient(app)
+
+    monkeypatch.setattr(
+        restaurant_service,
+        "get_restaurant",
+        lambda identifier: (_ for _ in ()).throw(restaurant_service.RestaurantNotFoundError()),
+    )
+    assert client.get(f"/api/v1/restaurants/{restaurant_id}/photos").status_code == 404
+
+    monkeypatch.setattr(restaurant_service, "get_restaurant", lambda identifier: None)
+    monkeypatch.setattr(
+        photo_service,
+        "list_restaurant_photos",
+        lambda *args, **kwargs: (_ for _ in ()).throw(InvalidCursorError()),
+    )
+    assert client.get(f"/api/v1/restaurants/{restaurant_id}/photos?cursor=roto").status_code == 422
+
+    monkeypatch.setattr(
+        photo_service,
+        "list_restaurant_photos",
+        lambda *args, **kwargs: (_ for _ in ()).throw(photo_service.PhotoStoreError()),
+    )
+    assert client.get(f"/api/v1/restaurants/{restaurant_id}/photos").status_code == 503
+
+
+def test_detail_and_gallery_require_a_session():
+    restaurant_id = uuid4()
+    client = TestClient(app)
+
+    assert client.get(f"/api/v1/restaurants/{restaurant_id}").status_code == 401
+    assert client.get(f"/api/v1/restaurants/{restaurant_id}/photos").status_code == 401
+
+
 def test_create_returns_resource_and_location(monkeypatch, authenticated):
     restaurant = sample_restaurant()
     received = {}
@@ -384,8 +420,10 @@ def test_domain_errors_map_to_http_statuses(monkeypatch, authenticated):
     restaurant_id = uuid4()
     monkeypatch.setattr(
         restaurant_service,
-        "get_restaurant",
-        lambda identifier: (_ for _ in ()).throw(restaurant_service.RestaurantNotFoundError()),
+        "get_restaurant_detail",
+        lambda identifier, **kwargs: (_ for _ in ()).throw(
+            restaurant_service.RestaurantNotFoundError()
+        ),
     )
     assert TestClient(app).get(f"/api/v1/restaurants/{restaurant_id}").status_code == 404
 

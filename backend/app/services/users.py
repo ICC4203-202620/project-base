@@ -22,7 +22,7 @@ from app.db.session import engine
 from app.services.activity import review_activity_item, review_activity_statement
 from app.services.auth import normalize_handle
 from app.services.cursors import decode_time_cursor, encode_time_cursor, utc_timestamp
-from app.services.reviews import PUBLIC_VISIBILITY
+from app.services.visibility import PUBLIC
 
 
 class UserNotFoundError(Exception):
@@ -73,7 +73,7 @@ class Profile:
 def _profile_statement(handle: str, viewer_id: UUID):
     # Correlated on users, so the whole profile is one round trip instead of
     # one query per counter.
-    visible_activity = or_(reviews.c.visibility == PUBLIC_VISIBILITY, users.c.id == viewer_id)
+    visible_activity = or_(reviews.c.visibility == PUBLIC, users.c.id == viewer_id)
     activity_count = (
         select(func.count())
         .select_from(reviews)
