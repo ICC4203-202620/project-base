@@ -15,6 +15,12 @@ class CuisineStyleFixture:
 
 @dataclass(frozen=True)
 class UserFixture:
+    """A teaching account.
+
+    The handle is stored without its at sign and the nationality as an ISO
+    3166-1 alpha-2 code, which is the form the registration endpoint writes.
+    """
+
     id: UUID
     email: str
     handle: str
@@ -51,25 +57,25 @@ DEMO_USERS = (
     UserFixture(
         UUID("00000000-0000-4000-8000-000000000001"),
         "demo@example.com",
-        "@demo",
+        "demo",
         "Demo Foodie",
-        "Chile",
+        "CL",
         "demo-password",
     ),
     UserFixture(
         UUID("00000000-0000-4000-8000-000000000002"),
         "demo2@example.com",
-        "@demo2",
+        "demo2",
         "Demo Foodie Dos",
-        "Argentina",
+        "AR",
         "demo-password",
     ),
     UserFixture(
         UUID("00000000-0000-4000-8000-000000000003"),
         "empty@example.com",
-        "@empty",
+        "empty",
         "Empty Feed",
-        "Perú",
+        "PE",
         "demo-password",
     ),
 )

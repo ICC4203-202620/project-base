@@ -12,9 +12,14 @@ from app.main import app
 from app.services.auth import (
     AuthenticatedSession,
     AuthenticationStoreError,
+    EmailAlreadyRegisteredError,
+    HandleAlreadyTakenError,
     InvalidCredentialsError,
     InvalidSessionError,
     IssuedSession,
+    is_valid_handle,
+    normalize_email,
+    normalize_handle,
 )
 
 
@@ -23,7 +28,7 @@ def sample_session() -> AuthenticatedSession:
         id=uuid4(),
         user_id=uuid4(),
         email="demo@example.com",
-        handle="@demo",
+        handle="demo",
         name="Demo Foodie",
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
@@ -195,3 +200,160 @@ def test_authentication_store_failures_return_service_unavailable(monkeypatch):
     client.cookies.set("session", "signed-token")
     logout_response = client.post("/api/v1/auth/logout")
     assert logout_response.status_code == 503
+
+
+def valid_registration(**overrides) -> dict:
+    payload = {
+        "name": "Nueva Foodie",
+        "email": "nueva@example.com",
+        "handle": "nueva_foodie",
+        "nationality": "CL",
+        "password": "a-long-enough-password",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def register(monkeypatch, payload, issued=None, failure=None):
+    """Post a registration with the service replaced, and report what it saw."""
+    seen = {}
+
+    def fake_register_user(**kwargs):
+        seen.update(kwargs)
+        if failure is not None:
+            raise failure
+        return issued
+
+    monkeypatch.setattr(auth_api, "register_user", fake_register_user)
+    response = TestClient(app).post(
+        "/api/v1/auth/register",
+        headers={"Origin": "http://testserver"},
+        json=payload,
+    )
+    return response, seen
+
+
+def issued_session_for(session: AuthenticatedSession) -> IssuedSession:
+    return IssuedSession(
+        token=create_access_token(session.user_id, session.id, expires_at=session.expires_at),
+        session=session,
+    )
+
+
+def test_normalized_handle_drops_the_at_sign_and_the_case():
+    assert normalize_handle("@Demo") == "demo"
+    assert normalize_handle("  DEMO  ") == "demo"
+    assert normalize_handle("demo") == "demo"
+
+
+def test_normalized_email_only_lowers_and_trims():
+    assert normalize_email("  Nueva@Example.COM ") == "nueva@example.com"
+
+
+def test_handle_pattern_accepts_the_stored_form_only():
+    assert is_valid_handle("demo_2")
+    assert not is_valid_handle("de")
+    assert not is_valid_handle("d" * 31)
+    assert not is_valid_handle("@demo")
+    assert not is_valid_handle("Demo")
+    assert not is_valid_handle("demo foodie")
+
+
+def test_register_creates_the_session_and_answers_like_the_session_endpoint(monkeypatch):
+    session = sample_session()
+    response, seen = register(
+        monkeypatch,
+        valid_registration(),
+        issued=issued_session_for(session),
+    )
+
+    assert response.status_code == 201
+    assert response.json() == {
+        "user": {
+            "id": str(session.user_id),
+            "email": session.email,
+            "handle": session.handle,
+            "name": session.name,
+        },
+        "expires_at": session.expires_at.isoformat().replace("+00:00", "Z"),
+    }
+    cookie = response.headers["set-cookie"]
+    assert "HttpOnly" in cookie
+    assert "SameSite=lax" in cookie
+    assert response.cookies["session"]
+    assert seen["nationality"] == "CL"
+
+
+def test_register_normalizes_the_handle_before_reaching_the_service(monkeypatch):
+    session = sample_session()
+    response, seen = register(
+        monkeypatch,
+        valid_registration(handle="@Nueva_Foodie", email="NUEVA@Example.com"),
+        issued=issued_session_for(session),
+    )
+
+    assert response.status_code == 201
+    assert seen["handle"] == "nueva_foodie"
+    assert seen["email"] == "nueva@example.com"
+
+
+def test_register_reports_which_field_is_already_taken(monkeypatch):
+    for failure, field in (
+        (EmailAlreadyRegisteredError(), "email"),
+        (HandleAlreadyTakenError(), "handle"),
+    ):
+        response, _ = register(monkeypatch, valid_registration(), failure=failure)
+        assert response.status_code == 409
+        assert response.json()["detail"]["field"] == field
+        assert "set-cookie" not in response.headers
+
+
+def test_register_rejects_a_handle_outside_the_pattern(monkeypatch):
+    for handle in ("ab", "d" * 31, "nueva foodie", "nueva-foodie", "ñandú_foodie"):
+        response, seen = register(monkeypatch, valid_registration(handle=handle))
+        assert response.status_code == 422, handle
+        assert seen == {}
+
+
+def test_register_rejects_a_short_password(monkeypatch):
+    response, seen = register(monkeypatch, valid_registration(password="corta"))
+
+    assert response.status_code == 422
+    assert seen == {}
+
+
+def test_register_rejects_an_unknown_country_code(monkeypatch):
+    for nationality in ("ZZ", "Chile", "CHL", ""):
+        response, seen = register(monkeypatch, valid_registration(nationality=nationality))
+        assert response.status_code == 422, nationality
+        assert seen == {}
+
+
+def test_register_rejects_a_blank_name(monkeypatch):
+    response, seen = register(monkeypatch, valid_registration(name="   "))
+
+    assert response.status_code == 422
+    assert seen == {}
+
+
+def test_register_rejects_an_untrusted_origin(monkeypatch):
+    monkeypatch.setattr(auth_api, "register_user", lambda **kwargs: None)
+
+    response = TestClient(app).post(
+        "/api/v1/auth/register",
+        headers={"Origin": "http://evil.example"},
+        json=valid_registration(),
+    )
+
+    assert response.status_code == 403
+
+
+def test_register_translates_a_store_failure_without_leaking_details(monkeypatch):
+    response, _ = register(
+        monkeypatch,
+        valid_registration(),
+        failure=AuthenticationStoreError("connection refused to db-1"),
+    )
+
+    assert response.status_code == 503
+    assert "db-1" not in response.text

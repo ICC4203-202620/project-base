@@ -82,7 +82,7 @@ def test_lambda_handler_preserves_login_and_logout_cookies(monkeypatch):
         id=uuid4(),
         user_id=uuid4(),
         email="demo@example.com",
-        handle="@demo",
+        handle="demo",
         name="Demo Foodie",
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
@@ -168,7 +168,7 @@ def test_lambda_handler_parses_multipart_review_upload(monkeypatch):
         id=uuid4(),
         user_id=uuid4(),
         email="demo@example.com",
-        handle="@demo",
+        handle="demo",
         name="Demo Foodie",
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
@@ -256,7 +256,7 @@ def test_lambda_handler_serves_feed_and_review_detail(monkeypatch):
         id=uuid4(),
         user_id=uuid4(),
         email="demo@example.com",
-        handle="@demo",
+        handle="demo",
         name="Demo Foodie",
         expires_at=datetime.now(UTC) + timedelta(hours=1),
     )

@@ -16,7 +16,7 @@ El equipo docente provee y mantiene el backend monolítico completo. Con el lanz
 * Perfil propio y perfil ajeno, con la separación entre actividad pública y actividad privada aplicada en el servidor.
 * Búsqueda de restaurantes por nombre, creación con prevención de duplicados, ficha completa y edición.
 * Consulta de restaurantes por área geográfica y búsqueda por estilo de comida dentro de una distancia dada, con la distancia calculada en el backend.
-* Visitas (check-in), fotografías de platos, menús e instalaciones, reseñas de plato, evaluaciones multicriterio de un restaurante y comentarios en threads sobre una fotografía, todos con visibilidad pública o privada.
+* Visitas (check-in), fotografías de platos, menús e instalaciones, reseñas de plato y evaluaciones multicriterio de un restaurante, todas con visibilidad pública o privada, y comentarios en threads sobre las fotografías públicas.
 * Búsqueda de usuarios por handle, seguimiento de usuarios y de restaurantes, y feed cronológico deduplicado.
 * Resolución de destinatarios de una notificación a partir de las relaciones de seguimiento, con la garantía de que una misma actividad produce un solo destinatario por usuario.
 
@@ -153,7 +153,7 @@ El frontend debe resolver las diecisiete épicas del enunciado general. Lo que s
 
 ### Cuenta y perfil
 
-1. **Registro e inicio de sesión.** Formulario de registro con nombre, correo, handle y nacionalidad, con validación del handle contra los ya existentes. Inicio y cierre de sesión con el flujo provisto. El registro y el inicio de sesión requieren conexión.
+1. **Registro e inicio de sesión.** Formulario de registro con nombre, correo, handle y nacionalidad. Cuando el handle o el correo ya están tomados, el backend rechaza el registro identificando el campo en conflicto, y la interfaz debe marcar ese campo en lugar de mostrar un error genérico. Inicio y cierre de sesión con el flujo provisto. El registro y el inicio de sesión requieren conexión.
 2. **Perfil de usuario.** El perfil propio muestra la actividad pública y la privada, distinguiéndolas visualmente. El perfil de otra persona muestra solo sus datos públicos y la actividad que decidió compartir. Ambas vistas ofrecen visitas, fotografías, reseñas y evaluaciones. El perfil ajeno incluye la acción de seguir o dejar de seguir.
 
 ### Descubrimiento de restaurantes

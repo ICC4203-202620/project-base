@@ -16,7 +16,7 @@ def sample_session() -> AuthenticatedSession:
         id=uuid4(),
         user_id=uuid4(),
         email="demo@example.com",
-        handle="@demo",
+        handle="demo",
         name="Demo Foodie",
         expires_at=datetime(2030, 1, 1, tzinfo=UTC),
     )
