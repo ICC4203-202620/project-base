@@ -212,6 +212,113 @@ def test_map_requires_a_session():
     )
 
 
+def test_nearby_passes_its_circle_and_serializes_the_distance(monkeypatch, authenticated):
+    restaurant = sample_restaurant()
+    received = {}
+
+    def restaurants_nearby(*, latitude, longitude, radius_metres, cuisine_style_slugs, limit):
+        received.update(
+            latitude=latitude,
+            longitude=longitude,
+            radius_metres=radius_metres,
+            cuisine_style_slugs=list(cuisine_style_slugs),
+            limit=limit,
+        )
+        return restaurant_service.RestaurantNearbyResult(
+            items=(restaurant_service.NearbyRestaurant.of(restaurant, 1234),),
+            truncated=False,
+        )
+
+    monkeypatch.setattr(restaurant_service, "restaurants_nearby", restaurants_nearby)
+
+    response = TestClient(app).get(
+        "/api/v1/restaurants/nearby"
+        "?latitude=-33.4372&longitude=-70.6506&radius=2000"
+        "&cuisine_style=chilena&cuisine_style=peruana&limit=10"
+    )
+
+    assert response.status_code == 200
+    assert received == {
+        "latitude": -33.4372,
+        "longitude": -70.6506,
+        "radius_metres": 2000,
+        "cuisine_style_slugs": ["chilena", "peruana"],
+        "limit": 10,
+    }
+    payload = response.json()
+    assert payload["truncated"] is False
+    assert payload["items"][0]["distance_m"] == 1234
+    assert payload["items"][0]["address"] == restaurant.address
+    assert payload["items"][0]["cuisine_styles"][0]["slug"] == "chilena"
+
+
+def test_nearby_works_without_a_style_filter(monkeypatch, authenticated):
+    received = {}
+
+    def restaurants_nearby(**kwargs):
+        received.update(kwargs)
+        return restaurant_service.RestaurantNearbyResult(items=(), truncated=False)
+
+    monkeypatch.setattr(restaurant_service, "restaurants_nearby", restaurants_nearby)
+
+    response = TestClient(app).get(
+        "/api/v1/restaurants/nearby?latitude=-33.4&longitude=-70.6&radius=1000"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "truncated": False}
+    assert list(received["cuisine_style_slugs"]) == []
+
+
+def test_nearby_validates_its_circle(monkeypatch, authenticated):
+    client = TestClient(app)
+
+    assert client.get("/api/v1/restaurants/nearby?latitude=-33.4").status_code == 422
+    assert (
+        client.get("/api/v1/restaurants/nearby?latitude=-33.4&longitude=-70.6&radius=0").status_code
+        == 422
+    )
+    assert (
+        client.get(
+            "/api/v1/restaurants/nearby?latitude=-91&longitude=-70.6&radius=1000"
+        ).status_code
+        == 422
+    )
+
+    monkeypatch.setattr(
+        restaurant_service,
+        "restaurants_nearby",
+        lambda **kwargs: (_ for _ in ()).throw(
+            restaurant_service.InvalidNearbySearchError("radius must not exceed 50000 metres")
+        ),
+    )
+    too_far = client.get("/api/v1/restaurants/nearby?latitude=-33.4&longitude=-70.6&radius=40000")
+    assert too_far.status_code == 422
+    assert too_far.json()["detail"][0]["loc"] == ["query", "radius"]
+
+    monkeypatch.setattr(
+        restaurant_service,
+        "restaurants_nearby",
+        lambda **kwargs: (_ for _ in ()).throw(
+            restaurant_service.UnknownCuisineStylesError(["marciana"])
+        ),
+    )
+    unknown_style = client.get(
+        "/api/v1/restaurants/nearby?latitude=-33.4&longitude=-70.6&radius=1000"
+        "&cuisine_style=marciana"
+    )
+    assert unknown_style.status_code == 422
+
+
+def test_nearby_requires_a_session():
+    assert (
+        TestClient(app)
+        .get("/api/v1/restaurants/nearby?latitude=-33.4&longitude=-70.6&radius=1000")
+        .status_code
+        == 401
+    )
+
+
 def test_create_returns_resource_and_location(monkeypatch, authenticated):
     restaurant = sample_restaurant()
     received = {}

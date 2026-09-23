@@ -105,6 +105,19 @@ class RestaurantPage(BaseModel):
     next_cursor: str | None
 
 
+class NearbyRestaurantSummary(RestaurantSummary):
+    # The only field the nearby search adds to the shared summary: the list
+    # ordered by distance and the markers on the map are the same cards.
+    distance_m: int
+
+
+class RestaurantNearbyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[NearbyRestaurantSummary]
+    truncated: bool
+
+
 class RestaurantMapResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

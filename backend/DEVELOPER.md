@@ -283,6 +283,20 @@ PostGIS: la entrega 4 migra a Aurora DSQL, que no lo ofrece. Las comparaciones
 quedan sin funciones que envuelvan las columnas, que es la condición para que
 el índice pueda servirlas.
 
+La búsqueda por cercanía usa el mismo índice. El rectángulo que circunscribe
+el círculo acota el escaneo, y recién sobre esos candidatos se mide la
+distancia exacta, que es la que decide pertenencia y orden. `circumscribing_bounds`
+es una función aparte justamente para poder probar sin base de datos sus dos
+bordes: un círculo que alcanza un polo no tiene cota de meridiano, y uno
+cercano al antimeridiano devuelve una arista oeste al este de la arista este,
+que es como la condición reconoce el cruce.
+
+La distancia se calcula en Python y no en SQL. Así la consulta queda con
+comparaciones simples que PostgreSQL, Aurora DSQL y el SQLite de las pruebas
+sirven igual, sin depender de funciones trigonométricas cuya disponibilidad
+difiere entre motores. Lo que eso cuesta es traer las filas del rectángulo, y
+el radio máximo es lo que acota ese conjunto.
+
 El límite de área se valida en el servicio y no sólo en el schema, para que la
 regla sea comprobable sin HTTP. La medida está en grados cuadrados y es
 deliberadamente burda: es una barrera contra quien se alejó hasta ver un

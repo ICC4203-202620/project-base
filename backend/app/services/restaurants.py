@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
+from math import asin, atan2, cos, degrees, radians, sin, sqrt
 from typing import Any, cast
 from unicodedata import combining, normalize
 from uuid import UUID, uuid4
@@ -25,9 +26,18 @@ LIKE_ESCAPE = "\\"
 # continent. The measure is deliberately crude, in square degrees: it is a
 # guard, not a measurement of surface.
 MAXIMUM_MAP_AREA_SQUARE_DEGREES = 100.0
-# Shared with the nearby search of #38, so the same map does not behave in two
-# ways depending on whether a style filter is active.
+# Shared with the nearby search, so the same map does not behave in two ways
+# depending on whether a style filter is active.
 MAXIMUM_MAP_RESULTS = 200
+
+# Mean Earth radius (IUGG), in metres. Distances here are spherical: the error
+# against the ellipsoid is a few parts in a thousand over the radii this
+# endpoint admits, and irrelevant next to the accuracy of a position reported
+# by a browser.
+EARTH_RADIUS_METRES = 6_371_008.8
+# Fifty kilometres. A "nearby" search of a thousand kilometres is not a nearby
+# search: it is the whole collection, which already has its own endpoint.
+MAXIMUM_NEARBY_RADIUS_METRES = 50_000
 
 
 class RestaurantNotFoundError(Exception):
@@ -60,6 +70,14 @@ class InvalidMapBoundsError(Exception):
         super().__init__(reason)
 
 
+class InvalidNearbySearchError(Exception):
+    """The centre or the radius of the circle cannot be answered."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
 class UnknownCuisineStylesError(Exception):
     """One or more cuisine slugs do not exist."""
 
@@ -83,6 +101,50 @@ class CuisineStyle:
 class RestaurantPage:
     items: tuple["Restaurant", ...]
     next_cursor: str | None
+
+
+@dataclass(frozen=True)
+class NearbyRestaurant:
+    """A restaurant with the distance the server measured to it.
+
+    The statement asks for a list ordered by distance. Letting the client
+    recompute it invites showing a number different from the one the server
+    ordered by.
+    """
+
+    id: UUID
+    name: str
+    address: str
+    latitude: Decimal
+    longitude: Decimal
+    cuisine_styles: tuple["CuisineStyle", ...]
+    distance_m: int
+
+    @classmethod
+    def of(cls, restaurant: "Restaurant", distance_m: int) -> "NearbyRestaurant":
+        return cls(
+            id=restaurant.id,
+            name=restaurant.name,
+            address=restaurant.address,
+            latitude=restaurant.latitude,
+            longitude=restaurant.longitude,
+            cuisine_styles=restaurant.cuisine_styles,
+            distance_m=distance_m,
+        )
+
+
+@dataclass(frozen=True)
+class RestaurantNearbyResult:
+    items: tuple[NearbyRestaurant, ...]
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class MapBounds:
+    south: float
+    west: float
+    north: float
+    east: float
 
 
 @dataclass(frozen=True)
@@ -326,6 +388,147 @@ def restaurants_in_bounds(
         raise RestaurantStoreError from error
 
     return RestaurantMapResult(items=tuple(items), truncated=truncated)
+
+
+def haversine_metres(
+    latitude: float,
+    longitude: float,
+    other_latitude: float,
+    other_longitude: float,
+) -> float:
+    """Great-circle distance over a sphere of EARTH_RADIUS_METRES.
+
+    Written with atan2 rather than asin: the asin form loses precision for
+    nearly antipodal points, and this one costs the same.
+    """
+    latitude_difference = radians(other_latitude - latitude)
+    longitude_difference = radians(other_longitude - longitude)
+    chord = (
+        sin(latitude_difference / 2) ** 2
+        + cos(radians(latitude)) * cos(radians(other_latitude)) * sin(longitude_difference / 2) ** 2
+    )
+    return 2 * EARTH_RADIUS_METRES * atan2(sqrt(chord), sqrt(1 - chord))
+
+
+def circumscribing_bounds(latitude: float, longitude: float, radius_metres: float) -> MapBounds:
+    """The smallest rectangle that contains a circle, in degrees.
+
+    It exists so the coordinate index can narrow the scan before any distance
+    is computed. Two edges need care and are the reason this is a function of
+    its own, testable without a database:
+
+    - a circle that reaches a pole has no meridian bound at all, so the whole
+      longitude range is returned; and
+    - a circle near the antimeridian yields a west edge east of its east edge,
+      which the bounds condition reads as two ranges.
+
+    The rectangle is a superset of the circle, so the exact distance filter
+    still has the last word.
+    """
+    angular_radius = radius_metres / EARTH_RADIUS_METRES
+    latitude_delta = degrees(angular_radius)
+    south = latitude - latitude_delta
+    north = latitude + latitude_delta
+
+    if south <= -90 or north >= 90:
+        return MapBounds(south=max(south, -90.0), west=-180.0, north=min(north, 90.0), east=180.0)
+
+    parallel_radius = cos(radians(latitude))
+    sine_ratio = sin(angular_radius) / parallel_radius
+    if sine_ratio >= 1:
+        return MapBounds(south=south, west=-180.0, north=north, east=180.0)
+
+    longitude_delta = degrees(asin(sine_ratio))
+    west = longitude - longitude_delta
+    east = longitude + longitude_delta
+    if west < -180 or east > 180:
+        # The circle crosses the antimeridian: both edges are wrapped and the
+        # west edge ends up east of the east edge, which is how the bounds
+        # condition recognises the case.
+        return MapBounds(
+            south=south,
+            west=(west + 360) if west < -180 else west,
+            north=north,
+            east=(east - 360) if east > 180 else east,
+        )
+    return MapBounds(south=south, west=west, north=north, east=east)
+
+
+def _validate_nearby_search(latitude: float, longitude: float, radius_metres: float) -> None:
+    if not -90 <= latitude <= 90:
+        raise InvalidNearbySearchError("latitude must be between -90 and 90 degrees")
+    if not -180 <= longitude <= 180:
+        raise InvalidNearbySearchError("longitude must be between -180 and 180 degrees")
+    if radius_metres <= 0:
+        raise InvalidNearbySearchError("radius must be greater than zero")
+    if radius_metres > MAXIMUM_NEARBY_RADIUS_METRES:
+        raise InvalidNearbySearchError(
+            f"radius must not exceed {MAXIMUM_NEARBY_RADIUS_METRES:g} metres"
+        )
+
+
+def restaurants_nearby(
+    *,
+    latitude: float,
+    longitude: float,
+    radius_metres: float,
+    cuisine_style_slugs: Sequence[str] = (),
+    limit: int,
+) -> RestaurantNearbyResult:
+    """Answer what is within a radius, optionally of certain cuisine styles.
+
+    The rectangle that circumscribes the circle narrows the scan through the
+    coordinate index; the exact distance is then measured over those
+    candidates, which is what decides membership and order. The distance is
+    computed here and not in SQL so the query stays plain comparisons that
+    PostgreSQL, Aurora DSQL and SQLite all serve the same way, without
+    depending on trigonometric functions whose availability differs between
+    engines. The maximum radius is what bounds how many candidates that costs.
+    """
+    _validate_nearby_search(latitude, longitude, radius_metres)
+    bounds = circumscribing_bounds(latitude, longitude, radius_metres)
+    statement = select(restaurants).where(
+        _map_bounds_condition(bounds.south, bounds.west, bounds.north, bounds.east)
+    )
+
+    try:
+        with engine.connect() as connection:
+            if cuisine_style_slugs:
+                # Resolved before querying, so an unknown slug is told apart
+                # from a circle that simply has nothing in it.
+                style_ids = _resolve_cuisine_style_ids(connection, cuisine_style_slugs)
+                statement = statement.where(
+                    restaurants.c.id.in_(
+                        select(restaurant_cuisine_styles.c.restaurant_id).where(
+                            restaurant_cuisine_styles.c.cuisine_style_id.in_(style_ids)
+                        )
+                    )
+                )
+            rows = connection.execute(statement).mappings().all()
+            candidates = _to_restaurants(connection, rows)
+    except UnknownCuisineStylesError:
+        raise
+    except SQLAlchemyError as error:
+        raise RestaurantStoreError from error
+
+    within_radius = []
+    for restaurant in candidates:
+        distance = haversine_metres(
+            latitude,
+            longitude,
+            float(restaurant.latitude),
+            float(restaurant.longitude),
+        )
+        if distance <= radius_metres:
+            within_radius.append(NearbyRestaurant.of(restaurant, round(distance)))
+
+    # Distance first, identifier to break ties, so the order is total and the
+    # same query always truncates at the same place.
+    within_radius.sort(key=lambda nearby: (nearby.distance_m, str(nearby.id)))
+    return RestaurantNearbyResult(
+        items=tuple(within_radius[:limit]),
+        truncated=len(within_radius) > limit,
+    )
 
 
 def list_restaurants(*, query: str | None, limit: int, cursor: str | None = None) -> RestaurantPage:

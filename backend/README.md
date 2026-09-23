@@ -132,6 +132,7 @@ Todas las rutas de restaurantes requieren esa sesión:
 | --- | --- |
 | `GET /api/v1/restaurants?q=cocina&limit=20` | Busca por nombre y pagina por cursor. |
 | `GET /api/v1/restaurants/map?south=…&west=…&north=…&east=…` | Restaurantes dentro del rectángulo visible del mapa. |
+| `GET /api/v1/restaurants/nearby?latitude=…&longitude=…&radius=…` | Restaurantes cercanos, ordenados por distancia. |
 | `GET /api/v1/cuisine-styles` | Catálogo de estilos de comida para el formulario de creación. |
 | `POST /api/v1/restaurants` | Crea un restaurante; responde `201` y publica `Location`. |
 | `GET /api/v1/restaurants/{id}` | Consulta un restaurante o responde `404`. |
@@ -185,6 +186,40 @@ La cuota de Google Maps es acotada y esta consulta es barata pero no gratis:
 **la interfaz no debe solicitarla en cada movimiento del mapa**. Conviene
 esperar a que el desplazamiento termine y omitir la solicitud cuando el
 rectángulo nuevo está contenido en el que ya se consultó.
+
+#### Restaurantes cercanos
+
+`GET /api/v1/restaurants/nearby` responde qué hay a menos de cierta distancia
+de una posición. Recibe `latitude`, `longitude` y `radius` en metros, los tres
+obligatorios, y `cuisine_style` opcional y repetible: un restaurante califica
+si tiene al menos uno de los estilos indicados. Sin ese parámetro devuelve
+todos los cercanos, porque el selector de la pantalla se puede limpiar.
+
+Devuelve `{ items, truncated }` ordenado por distancia ascendente, con el
+mismo resumen de restaurante y `distance_m` como único campo agregado. **La
+distancia la mide el servidor**, con la fórmula de Haversine sobre un radio
+terrestre medio de 6 371 008,8 m, y se publica redondeada a metros: más
+precisión sugeriría una exactitud que la posición del navegador no tiene. Que
+el cliente la recalcule invita a mostrar un número distinto del que se usó
+para ordenar.
+
+Tampoco se pagina, por la misma razón que el mapa y una propia: el orden es
+una distancia calculada, que no está indexada, y un cursor sobre ella
+obligaría a recalcularla en cada página. Si el resultado no cabe, la respuesta
+es reducir el radio o afinar el estilo.
+
+El radio máximo son cincuenta kilómetros. Una consulta de cercanía de mil
+kilómetros no es una consulta de cercanía: es la colección completa, que ya
+tiene su endpoint. Un radio no positivo o mayor que el máximo, una coordenada
+fuera de rango o un slug de estilo desconocido responden `422`; un círculo
+válido sin restaurantes responde `200` con `items` vacío.
+
+La misma advertencia del mapa vale aquí: **no conviene solicitar en cada
+pulsación del selector de estilo ni en cada arrastre del control de
+distancia**. Y como el enunciado exige que la aplicación siga siendo utilizable
+cuando se deniega el permiso de geolocalización, esta consulta no puede ser el
+único camino hacia un restaurante: la búsqueda por nombre y la exploración
+libre del mapa tienen que seguir estando.
 
 Al crear o editar, `cuisine_styles` recibe uno o más slugs existentes. Los datos
 iniciales ofrecen `chilena`, `peruana`, `italiana`, `japonesa`, `india`,
