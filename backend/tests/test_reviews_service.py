@@ -10,6 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db.schema import metadata, photos, restaurants, reviews
 from app.media.storage import LocalMediaLocation, MediaStorageError
+from app.services import photos as photo_service
 from app.services import reviews as review_service
 
 
@@ -78,7 +79,7 @@ def test_create_review_stores_validated_image_and_metadata(monkeypatch):
     restaurant_id = uuid4()
     author_id = uuid4()
     insert_restaurant(engine, restaurant_id)
-    monkeypatch.setattr(review_service, "engine", engine)
+    monkeypatch.setattr(photo_service, "engine", engine)
     storage = MemoryStorage()
 
     review = review_service.create_review(
@@ -100,13 +101,18 @@ def test_create_review_stores_validated_image_and_metadata(monkeypatch):
     with engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(photos)) == 1
         persisted = connection.execute(select(reviews)).mappings().one()
-    assert persisted["dish_name"] == "Ceviche"
     assert persisted["photo_id"] == review.photo.id
+    assert review.dish_name == "Ceviche"
+    with engine.connect() as connection:
+        stored_photo = connection.execute(select(photos)).mappings().one()
+    assert stored_photo["dish_name"] == "Ceviche"
+    assert stored_photo["search_dish_name"] == "ceviche"
+    assert stored_photo["kind"] == "dish"
 
 
 def test_create_review_rejects_invalid_mime_and_size_before_storage(monkeypatch):
     storage = MemoryStorage()
-    with pytest.raises(review_service.InvalidReviewPhotoError):
+    with pytest.raises(photo_service.InvalidPhotoError):
         review_service.create_review(
             author_id=uuid4(),
             restaurant_id=uuid4(),
@@ -118,8 +124,8 @@ def test_create_review_rejects_invalid_mime_and_size_before_storage(monkeypatch)
         )
     assert storage.stored == []
 
-    monkeypatch.setattr(review_service.settings, "media_max_upload_bytes", 1)
-    with pytest.raises(review_service.ReviewPhotoTooLargeError):
+    monkeypatch.setattr(photo_service.settings, "media_max_upload_bytes", 1)
+    with pytest.raises(photo_service.PhotoTooLargeError):
         review_service.create_review(
             author_id=uuid4(),
             restaurant_id=uuid4(),
@@ -136,9 +142,9 @@ def test_create_review_does_not_persist_when_storage_fails(monkeypatch):
     engine = memory_engine()
     restaurant_id = uuid4()
     insert_restaurant(engine, restaurant_id)
-    monkeypatch.setattr(review_service, "engine", engine)
+    monkeypatch.setattr(photo_service, "engine", engine)
 
-    with pytest.raises(review_service.ReviewMediaError):
+    with pytest.raises(photo_service.PhotoMediaError):
         review_service.create_review(
             author_id=uuid4(),
             restaurant_id=restaurant_id,
@@ -155,7 +161,7 @@ def test_create_review_does_not_persist_when_storage_fails(monkeypatch):
 
 def test_create_review_compensates_object_when_relationship_or_database_fails(monkeypatch):
     engine = memory_engine()
-    monkeypatch.setattr(review_service, "engine", engine)
+    monkeypatch.setattr(photo_service, "engine", engine)
     storage = MemoryStorage()
 
     with pytest.raises(review_service.ReviewNotFoundError):
@@ -172,7 +178,7 @@ def test_create_review_compensates_object_when_relationship_or_database_fails(mo
 
     storage = MemoryStorage()
     monkeypatch.setattr(
-        review_service,
+        photo_service,
         "run_transaction_with_retry",
         lambda *args, **kwargs: (_ for _ in ()).throw(SQLAlchemyError("database unavailable")),
     )
@@ -191,7 +197,7 @@ def test_create_review_compensates_object_when_relationship_or_database_fails(mo
 
 def test_resolve_photo_applies_visibility_and_uses_storage(monkeypatch, tmp_path):
     engine = memory_engine()
-    monkeypatch.setattr(review_service, "engine", engine)
+    monkeypatch.setattr(photo_service, "engine", engine)
     author_id = uuid4()
     other_user_id = uuid4()
     restaurant_id = uuid4()
@@ -210,6 +216,7 @@ def test_resolve_photo_applies_visibility_and_uses_storage(monkeypatch, tmp_path
                 size_bytes=12,
                 visibility="private",
                 kind="dish",
+                dish_name="Plato",
                 created_at=timestamp,
             )
         )
@@ -219,7 +226,6 @@ def test_resolve_photo_applies_visibility_and_uses_storage(monkeypatch, tmp_path
                 author_id=author_id,
                 restaurant_id=restaurant_id,
                 photo_id=photo_id,
-                dish_name="Plato",
                 text="Texto",
                 visibility="private",
                 created_at=timestamp,
@@ -233,9 +239,9 @@ def test_resolve_photo_applies_visibility_and_uses_storage(monkeypatch, tmp_path
             return LocalMediaLocation(path=tmp_path / "private.png")
 
     storage = ResolvingStorage()
-    with pytest.raises(review_service.ReviewNotFoundError):
-        review_service.resolve_photo(photo_id, viewer_id=other_user_id, storage=storage)
+    with pytest.raises(photo_service.PhotoNotFoundError):
+        photo_service.resolve_photo(photo_id, viewer_id=other_user_id, storage=storage)
 
-    photo, location = review_service.resolve_photo(photo_id, viewer_id=author_id, storage=storage)
+    photo, location = photo_service.resolve_photo(photo_id, viewer_id=author_id, storage=storage)
     assert photo.id == photo_id
     assert location == LocalMediaLocation(path=tmp_path / "private.png")

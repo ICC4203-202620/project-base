@@ -85,6 +85,9 @@ def _profile_statement(handle: str, viewer_id: UUID):
             .where(
                 source.author_id == users.c.id,
                 or_(source.visibility == PUBLIC, users.c.id == viewer_id),
+                # The same restriction the keys apply, so the counter never
+                # promises rows the list will not produce.
+                *((source.extra_condition(),) if source.extra_condition else ()),
             )
             .correlate(users)
             .scalar_subquery()

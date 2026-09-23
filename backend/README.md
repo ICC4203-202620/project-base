@@ -278,6 +278,36 @@ restaurantes. Esa simplificación permite practicar el CRUD, pero **no es un
 modelo de autorización apropiado para producción**: roles, ownership y
 moderación quedan para una evolución posterior.
 
+### Publicar la fotografía de un plato
+
+| Método y path | Resultado |
+| --- | --- |
+| `POST /api/v1/photos` | Publica la fotografía de un plato; responde `201` y publica `Location`. |
+| `GET /api/v1/photos/{id}` | Metadatos de una fotografía, o `404`. |
+| `GET /api/v1/photos/{id}/content` | Los bytes de la fotografía. |
+
+Subir la foto de un plato es una acción completa en sí misma, y reseñarla es
+otra. Recibe `multipart/form-data` con `restaurant_id`, `kind`, `dish_name`,
+`visibility`, el archivo y un `caption` opcional que la interfaz puede usar
+como texto alternativo de la imagen.
+
+Por ahora `kind` sólo admite `dish`, y por eso `dish_name` es obligatorio; los
+tipos `menu` y `venue` los habilita la épica 9. La visibilidad es obligatoria
+y sin valor por omisión, con el mismo criterio del check-in.
+
+**El plato vive en la fotografía**, no en la reseña. Se guarda tal como se
+escribió y además en una forma normalizada que ignora acentos y mayúsculas,
+de modo que las fotografías del mismo plato se agrupen aunque una diga «Ají de
+gallina» y otra «aji de gallina».
+
+Un archivo que no sea un JPEG, PNG o WebP íntegro, o cuyo MIME declarado no
+coincida con su contenido, responde `422`; uno sobre `MEDIA_MAX_UPLOAD_BYTES`
+responde `413`. La validación ocurre antes de almacenar nada, y si la
+transacción falla después, el objeto almacenado se elimina.
+
+Una fotografía pública la ve cualquier sesión; una privada, sólo su autor,
+tanto en sus metadatos como en su contenido.
+
 ### Creación de reseñas con fotografía
 
 `POST /api/v1/reviews` crea la reseña pública de la sesión vigente. Recibe
@@ -486,8 +516,15 @@ siguen a su autor y no enterrada donde nadie la verá. Un cursor que esta API
 no emitió responde `422`.
 
 Cada clase de actividad viaja bajo una clave llamada como su `type`: una
-reseña en `review`, una visita en `visit`. Un cliente que recorre la lista
-distingue por `type` y no necesita saber cuáles clases existen.
+reseña en `review`, una visita en `visit`, una publicación de fotografías en
+`photo`. Un cliente que recorre la lista distingue por `type` y no necesita
+saber cuáles clases existen.
+
+El item de tipo `photo` lleva una **colección** de fotografías, aunque hoy
+siempre tenga una: la épica 9 publica varias en un mismo acto y las presenta
+como una sola actividad. Una fotografía que ya tiene reseña no aparece como
+actividad propia: la reseña la lleva consigo, y contarlas por separado
+mostraría dos veces la misma fotografía al mismo seguidor.
 
 Para detener los servicios conservando los datos locales:
 

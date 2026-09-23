@@ -153,8 +153,15 @@ photos = Table(
     # A photograph is published activity in its own right, so its visibility
     # is its own and not deduced from a review it may not have.
     Column("visibility", String(16), nullable=False),
-    # dish, menu or venue. Only dish is accepted until épicas 8 and 9.
+    # dish, menu or venue. Only dish is accepted until épica 9.
     Column("kind", String(16), nullable=False),
+    # Which dish this is, for a photograph of one. Null for a menu or a venue.
+    Column("dish_name", String(120), nullable=True),
+    # Its search form, so photographs of the same dish group together whether
+    # or not whoever typed them used the accents.
+    Column("search_dish_name", String(240), nullable=True),
+    # Optional text the interface can use as the alternative text of the image.
+    Column("caption", String(500), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -165,6 +172,11 @@ Index(
     photos.c.restaurant_id,
     photos.c.created_at,
     photos.c.id,
+)
+Index(
+    "ix_photos_restaurant_dish",
+    photos.c.restaurant_id,
+    photos.c.search_dish_name,
 )
 
 visits = Table(
@@ -198,7 +210,8 @@ reviews = Table(
     Column("author_id", Uuid(as_uuid=True), nullable=False),
     Column("restaurant_id", Uuid(as_uuid=True), nullable=False),
     Column("photo_id", Uuid(as_uuid=True), nullable=False),
-    Column("dish_name", String(120), nullable=False),
+    # The dish lives on the photograph. Keeping it in two tables would
+    # guarantee that at some point they disagree.
     Column("text", String(2000), nullable=False),
     Column("visibility", String(16), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),

@@ -42,6 +42,7 @@ from app.services.visibility import PUBLIC
 
 REVIEW_TYPE = "review"
 VISIT_TYPE = "visit"
+PHOTO_TYPE = "photo"
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,9 @@ class ActivitySource:
     published_at: Column
     identifier: Column
     hydrate: Callable[[Connection, UUID, Sequence[UUID]], dict[UUID, dict]]
+    # Some rows of a table are not activity on their own: a photograph that
+    # already carries a review is published by that review.
+    extra_condition: Callable[[], object] | None = None
 
     def visible(self, viewer_id: UUID):
         """Public, or written by whoever is looking."""
@@ -63,12 +67,15 @@ class ActivitySource:
 
     def keys(self, viewer_id: UUID) -> Select:
         """The sort keys of this source, already filtered by visibility."""
-        return select(
+        keys = select(
             literal(self.type).label("type"),
             self.occurred_at.label("occurred_at"),
             self.published_at.label("published_at"),
             self.identifier.label("id"),
         ).where(self.visible(viewer_id))
+        if self.extra_condition is not None:
+            keys = keys.where(self.extra_condition())
+        return keys
 
 
 # --- Reviews -----------------------------------------------------------------
@@ -84,7 +91,7 @@ def review_activity_statement(viewer_id: UUID) -> Select:
     return (
         select(
             reviews.c.id,
-            reviews.c.dish_name,
+            photos.c.dish_name,
             reviews.c.text,
             reviews.c.visibility,
             reviews.c.created_at,
@@ -97,6 +104,7 @@ def review_activity_statement(viewer_id: UUID) -> Select:
             restaurants.c.address.label("restaurant_address"),
             photos.c.id.label("photo_id"),
             photos.c.content_type.label("photo_content_type"),
+            photos.c.caption.label("photo_caption"),
         )
         .select_from(
             reviews.join(author, reviews.c.author_id == author.c.id)
@@ -130,6 +138,7 @@ def review_object(row: Mapping) -> dict:
             "id": row["photo_id"],
             "content_type": row["photo_content_type"],
             "content_url": f"/api/v1/photos/{row['photo_id']}/content",
+            "caption": row["photo_caption"],
         },
     }
 
@@ -226,6 +235,100 @@ def _hydrate_visits(
     return {row["id"]: visit_activity_item(row) for row in rows}
 
 
+# --- Photographs -------------------------------------------------------------
+
+
+def photo_activity_statement(viewer_id: UUID) -> Select:
+    author = users.alias("photo_activity_author")
+    return (
+        select(
+            photos.c.id,
+            photos.c.kind,
+            photos.c.visibility,
+            photos.c.dish_name,
+            photos.c.caption,
+            photos.c.content_type,
+            photos.c.created_at,
+            author.c.id.label("author_id"),
+            author.c.handle.label("author_handle"),
+            author.c.name.label("author_name"),
+            restaurants.c.id.label("restaurant_id"),
+            restaurants.c.name.label("restaurant_name"),
+            restaurants.c.address.label("restaurant_address"),
+        )
+        .select_from(
+            photos.join(author, photos.c.author_id == author.c.id).join(
+                restaurants, photos.c.restaurant_id == restaurants.c.id
+            )
+        )
+        .where(
+            or_(photos.c.visibility == PUBLIC, photos.c.author_id == viewer_id),
+            _photo_without_review(),
+        )
+    )
+
+
+def _photo_without_review():
+    """A photograph that already carries a review is not activity of its own.
+
+    The review publishes it, so counting both would show the same photograph
+    twice to the same follower.
+    """
+    return ~select(reviews.c.id).where(reviews.c.photo_id == photos.c.id).exists()
+
+
+def photo_activity_item(rows: Sequence[Mapping]) -> dict:
+    """One act of publishing, which may carry more than one photograph.
+
+    It is a collection from the start even though this épica always publishes
+    one: épica 9 publishes several in a single act and presents them as one
+    activity, and defining the shape in the singular would force the client to
+    change then.
+    """
+    first = rows[0]
+    published_at = utc_timestamp(first["created_at"])
+    return {
+        "type": PHOTO_TYPE,
+        "occurred_at": published_at,
+        "published_at": published_at,
+        PHOTO_TYPE: {
+            "kind": first["kind"],
+            "visibility": first["visibility"],
+            "author": {
+                "id": first["author_id"],
+                "handle": first["author_handle"],
+                "name": first["author_name"],
+            },
+            "restaurant": {
+                "id": first["restaurant_id"],
+                "name": first["restaurant_name"],
+                "address": first["restaurant_address"],
+            },
+            "photos": [
+                {
+                    "id": row["id"],
+                    "content_type": row["content_type"],
+                    "content_url": f"/api/v1/photos/{row['id']}/content",
+                    "dish_name": row["dish_name"],
+                    "caption": row["caption"],
+                }
+                for row in rows
+            ],
+        },
+    }
+
+
+def _hydrate_photos(
+    connection: Connection, viewer_id: UUID, identifiers: Sequence[UUID]
+) -> dict[UUID, dict]:
+    rows = (
+        connection.execute(photo_activity_statement(viewer_id).where(photos.c.id.in_(identifiers)))
+        .mappings()
+        .all()
+    )
+    return {row["id"]: photo_activity_item([row]) for row in rows}
+
+
 # --- The registry ------------------------------------------------------------
 
 ACTIVITY_SOURCES: tuple[ActivitySource, ...] = (
@@ -248,6 +351,17 @@ ACTIVITY_SOURCES: tuple[ActivitySource, ...] = (
         published_at=visits.c.created_at,
         identifier=visits.c.id,
         hydrate=_hydrate_visits,
+    ),
+    ActivitySource(
+        type=PHOTO_TYPE,
+        author_id=photos.c.author_id,
+        restaurant_id=photos.c.restaurant_id,
+        visibility=photos.c.visibility,
+        occurred_at=photos.c.created_at,
+        published_at=photos.c.created_at,
+        identifier=photos.c.id,
+        hydrate=_hydrate_photos,
+        extra_condition=_photo_without_review,
     ),
 )
 

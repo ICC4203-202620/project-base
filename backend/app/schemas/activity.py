@@ -30,6 +30,7 @@ class ActivityPhoto(BaseModel):
     id: UUID
     content_type: str
     content_url: str
+    caption: str | None
 
 
 class ActivityReview(BaseModel):
@@ -53,13 +54,36 @@ class ActivityVisit(BaseModel):
     created_at: datetime
 
 
+class ActivityPhotograph(BaseModel):
+    id: UUID
+    content_type: str
+    content_url: str
+    dish_name: str | None
+    caption: str | None
+
+
+class ActivityPhotos(BaseModel):
+    """One act of publishing, which may carry more than one photograph.
+
+    A collection from the start: épica 9 publishes several in a single act and
+    presents them as one activity.
+    """
+
+    kind: str
+    visibility: Literal["public", "private"]
+    author: UserSummary
+    restaurant: ActivityRestaurant
+    photos: list[ActivityPhotograph]
+
+
 class Activity(BaseModel):
-    type: Literal["review", "visit"]
+    type: Literal["review", "visit", "photo"]
     occurred_at: datetime
     published_at: datetime
     # Exactly one of these carries the activity, named after its type.
     review: ActivityReview | None = None
     visit: ActivityVisit | None = None
+    photo: ActivityPhotos | None = None
 
 
 class ActivityPage(BaseModel):

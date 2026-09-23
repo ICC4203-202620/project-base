@@ -703,8 +703,17 @@ def test_profile_and_activity_apply_visibility_with_postgresql():
     seen_activity = author_client.get(f"/api/v1/users/{owner.handle}/activity").json()
 
     private_review = next(fixture for fixture in REVIEW_FIXTURES if fixture.visibility == "private")
-    own_ids = {item[item["type"]]["id"] for item in own_activity["items"]}
-    seen_ids = {item[item["type"]]["id"] for item in seen_activity["items"]}
+
+    def activity_ids(page):
+        return {
+            item["photo"]["photos"][0]["id"]
+            if item["type"] == "photo"
+            else item[item["type"]]["id"]
+            for item in page["items"]
+        }
+
+    own_ids = activity_ids(own_activity)
+    seen_ids = activity_ids(seen_activity)
 
     assert own_profile["handle"] == owner.handle
     assert own_profile["nationality"] == {"code": "CL", "name": "Chile"}
@@ -727,8 +736,12 @@ def test_seeded_feed_and_review_detail_work_with_postgresql():
 
     response = client.get("/api/v1/feed?limit=50")
     assert response.status_code == 200
-    # The feed mixes classes of activity, each under a key named after its type.
-    activity_ids = [item[item["type"]]["id"] for item in response.json()["items"]]
+    # The feed mixes classes of activity, each under a key named after its
+    # type. A photo item carries a collection of photographs.
+    activity_ids = [
+        item["photo"]["photos"][0]["id"] if item["type"] == "photo" else item[item["type"]]["id"]
+        for item in response.json()["items"]
+    ]
     review_ids = [
         item["review"]["id"] for item in response.json()["items"] if item["type"] == "review"
     ]

@@ -9,6 +9,7 @@ from PIL import Image
 from app.api.dependencies import get_current_session
 from app.main import app
 from app.media.storage import LocalMediaLocation, RemoteMediaLocation, get_media_storage
+from app.services import photos as photo_service
 from app.services import reviews as review_service
 from app.services.auth import AuthenticatedSession
 
@@ -38,13 +39,17 @@ def sample_session() -> AuthenticatedSession:
 def sample_review(session=None) -> review_service.Review:
     session = session or sample_session()
     timestamp = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
-    photo = review_service.Photo(
+    photo = photo_service.Photo(
         id=uuid4(),
         author_id=session.user_id,
         restaurant_id=uuid4(),
         storage_key="photos/test.png",
         content_type="image/png",
         size_bytes=42,
+        visibility="public",
+        kind="dish",
+        dish_name="Ceviche",
+        caption=None,
         created_at=timestamp,
     )
     return review_service.Review(
@@ -147,10 +152,10 @@ def test_create_review_rejects_blank_fields_and_untrusted_origin(monkeypatch, au
 @pytest.mark.parametrize(
     ("error", "expected_status"),
     [
-        (review_service.InvalidReviewPhotoError(), 422),
-        (review_service.ReviewPhotoTooLargeError(), 413),
+        (photo_service.InvalidPhotoError(), 422),
+        (photo_service.PhotoTooLargeError(), 413),
         (review_service.ReviewNotFoundError(), 404),
-        (review_service.ReviewMediaError(), 503),
+        (photo_service.PhotoMediaError(), 503),
         (review_service.ReviewStoreError(), 503),
     ],
 )
@@ -174,7 +179,7 @@ def test_photo_content_streams_local_file(monkeypatch, authenticated, tmp_path):
     path = tmp_path / "photo.png"
     path.write_bytes(png_bytes())
     monkeypatch.setattr(
-        review_service,
+        photo_service,
         "resolve_photo",
         lambda *args, **kwargs: (review.photo, LocalMediaLocation(path=path)),
     )
@@ -190,7 +195,7 @@ def test_photo_content_streams_local_file(monkeypatch, authenticated, tmp_path):
 def test_photo_content_redirects_to_short_lived_s3_url(monkeypatch, authenticated):
     review = sample_review(authenticated)
     monkeypatch.setattr(
-        review_service,
+        photo_service,
         "resolve_photo",
         lambda *args, **kwargs: (
             review.photo,

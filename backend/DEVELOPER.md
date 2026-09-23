@@ -463,6 +463,30 @@ historial del restaurante, y por eso la galería quedó fuera. `_evaluation_summ
 existe como punto único identificado: cuando la épica 11 tenga evaluaciones,
 sólo esa función cambia, y ni el router ni la forma de la respuesta lo hacen.
 
+### Fotografías: un solo camino de subida
+
+`app/services/photos.py` es el único lugar por donde una imagen entra al
+sistema. La creación de una reseña no duplica la validación, el almacenamiento
+ni la compensación: llama a `store_photo` y le pasa qué escribir dentro de la
+misma transacción que persiste la fotografía. Así `create_review` sigue siendo
+el único punto donde se persiste una reseña, que es donde los grupos enganchan
+su emisor de Web Push.
+
+El orden es el mismo de siempre —validar, almacenar el objeto, abrir la
+transacción— y ahora está escrito una vez.
+
+El plato es una propiedad de la fotografía y no de la reseña. Mantenerlo en
+dos tablas garantizaría que en algún momento discrepen, y la fotografía es lo
+que se publica: la reseña es una opinión que se agrega encima. La migración
+`0104` lo traslada y retira la columna de `reviews`; la respuesta de una
+reseña lo conserva, derivado, de modo que el cambio no se note desde el
+cliente.
+
+Una fotografía que ya tiene reseña no es actividad por derecho propio. El
+origen de actividad de fotografías lo expresa con una condición extra —`NOT
+EXISTS` sobre la reseña—, que el contador del perfil aplica también, para que
+nunca prometa filas que la lista no va a producir.
+
 ## Perfil de usuario y regla de visibilidad
 
 `app/services/users.py` es donde vive la regla de visibilidad del proyecto, y

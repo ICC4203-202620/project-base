@@ -12,6 +12,7 @@ from app.api.dependencies import get_current_session
 from app.main import app, handler
 from app.media.storage import get_media_storage
 from app.services import feed as feed_service
+from app.services import photos as photo_service
 from app.services import restaurants as restaurant_service
 from app.services import reviews as review_service
 from app.services.auth import AuthenticatedSession, IssuedSession
@@ -174,13 +175,17 @@ def test_lambda_handler_parses_multipart_review_upload(monkeypatch):
     )
     timestamp = datetime(2026, 8, 25, tzinfo=UTC)
     restaurant_id = uuid4()
-    photo = review_service.Photo(
+    photo = photo_service.Photo(
         id=uuid4(),
         author_id=session.user_id,
         restaurant_id=restaurant_id,
         storage_key="photos/lambda.png",
         content_type="image/png",
         size_bytes=42,
+        visibility="public",
+        kind="dish",
+        dish_name="Ceviche",
+        caption=None,
         created_at=timestamp,
     )
     review = review_service.Review(
@@ -273,6 +278,7 @@ def test_lambda_handler_serves_feed_and_review_detail(monkeypatch):
             "id": uuid4(),
             "content_type": "image/webp",
             "content_url": f"/api/v1/photos/{uuid4()}/content",
+            "caption": None,
         },
         "created_at": timestamp,
         "updated_at": timestamp,

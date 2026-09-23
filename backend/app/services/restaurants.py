@@ -24,8 +24,7 @@ from app.db.schema import (
 )
 from app.db.session import engine
 from app.services.cursors import decode_cursor, encode_cursor
-from app.services.photos import visible_photo_condition
-from app.services.visibility import PUBLIC
+from app.services.visibility import PUBLIC, visible_to
 
 MINIMUM_SEARCH_LENGTH = 2
 LIKE_ESCAPE = "\\"
@@ -660,7 +659,12 @@ def _restaurant_counters_statement(restaurant_id: UUID, viewer_id: UUID):
     visible_photos = (
         select(func.count())
         .select_from(photos)
-        .where(photos.c.restaurant_id == restaurant_id, visible_photo_condition(viewer_id))
+        .where(
+            photos.c.restaurant_id == restaurant_id,
+            # Not imported from the photo service: that one depends on this
+            # module, and the rule itself lives where visibility does.
+            visible_to(photos.c.visibility, photos.c.author_id, viewer_id),
+        )
         .scalar_subquery()
     )
     visible_reviews = (
