@@ -35,7 +35,7 @@ test("the API client uses relative URLs and includes browser credentials", async
     [
       "/healthz",
       "/api/v1/auth/session",
-      "/api/v1/restaurants?limit=20&offset=0",
+      "/api/v1/restaurants?limit=20",
       "/api/v1/auth/login",
       "/api/v1/auth/logout",
     ],
@@ -49,17 +49,17 @@ test("the API client uses relative URLs and includes browser credentials", async
   assert.equal(calls[4].options.method, "POST");
 });
 
-test("the restaurants request accepts pagination and cancellation", async () => {
+test("the restaurants request accepts search, cursor and cancellation", async () => {
   let received;
   const controller = new AbortController();
   const api = createApiClient(async (path, options) => {
     received = { path, options };
-    return jsonResponse([]);
+    return jsonResponse({ items: [], next_cursor: null });
   });
 
-  await api.restaurants({ limit: 5, offset: 10, signal: controller.signal });
+  await api.restaurants({ limit: 5, q: "cocina", cursor: "abc", signal: controller.signal });
 
-  assert.equal(received.path, "/api/v1/restaurants?limit=5&offset=10");
+  assert.equal(received.path, "/api/v1/restaurants?limit=5&q=cocina&cursor=abc");
   assert.equal(received.options.signal, controller.signal);
   assert.equal(received.options.credentials, "include");
 });

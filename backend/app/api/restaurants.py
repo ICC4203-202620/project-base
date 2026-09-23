@@ -4,12 +4,24 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.dependencies import get_current_session, require_trusted_origin
-from app.schemas.restaurants import RestaurantCreate, RestaurantResponse, RestaurantUpdate
+from app.schemas.restaurants import (
+    CuisineStyleResponse,
+    RestaurantCreate,
+    RestaurantPage,
+    RestaurantResponse,
+    RestaurantUpdate,
+)
 from app.services import restaurants as restaurant_service
+from app.services.cursors import InvalidCursorError
 
 router = APIRouter(
     prefix="/restaurants",
     tags=["restaurants"],
+    dependencies=[Depends(get_current_session)],
+)
+cuisine_styles_router = APIRouter(
+    prefix="/cuisine-styles",
+    tags=["cuisine styles"],
     dependencies=[Depends(get_current_session)],
 )
 
@@ -18,9 +30,33 @@ def _raise_http_error(error: Exception) -> NoReturn:
     if isinstance(error, restaurant_service.RestaurantNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
     if isinstance(error, restaurant_service.DuplicateRestaurantError):
+        detail: dict[str, object] = {
+            "message": "A restaurant with the same name and address already exists"
+        }
+        if error.existing:
+            # So the interface can take the person to the page that exists
+            # instead of leaving them on an error.
+            detail["restaurant"] = {"id": str(error.existing.id), "name": error.existing.name}
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    if isinstance(error, restaurant_service.SearchTermTooShortError):
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A restaurant with the same name and address already exists",
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {
+                    "type": "value_error",
+                    "loc": ["query", "q"],
+                    "msg": (
+                        "Search term must be at least "
+                        f"{restaurant_service.MINIMUM_SEARCH_LENGTH} characters long"
+                    ),
+                    "input": None,
+                }
+            ],
+        )
+    if isinstance(error, InvalidCursorError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Invalid cursor",
         )
     if isinstance(error, restaurant_service.UnknownCuisineStylesError):
         raise HTTPException(
@@ -40,13 +76,43 @@ def _raise_http_error(error: Exception) -> NoReturn:
     )
 
 
-@router.get("", response_model=list[RestaurantResponse])
+@router.get(
+    "",
+    response_model=RestaurantPage,
+    summary="Restaurant collection, optionally narrowed by a term in the name",
+    responses={
+        200: {
+            "description": (
+                "Paged by opaque cursor and ordered by name, ignoring case and diacritics. "
+                "It answers { items, next_cursor } and no longer a bare array."
+            )
+        },
+        422: {"description": "Term shorter than two characters, or a foreign cursor"},
+    },
+)
 def index(
+    q: Annotated[str | None, Query(max_length=120)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    offset: Annotated[int, Query(ge=0)] = 0,
-) -> list[restaurant_service.Restaurant]:
+    cursor: str | None = None,
+) -> restaurant_service.RestaurantPage:
     try:
-        return restaurant_service.list_restaurants(limit=limit, offset=offset)
+        return restaurant_service.list_restaurants(query=q, limit=limit, cursor=cursor)
+    except (
+        restaurant_service.SearchTermTooShortError,
+        restaurant_service.RestaurantStoreError,
+        InvalidCursorError,
+    ) as error:
+        _raise_http_error(error)
+
+
+@cuisine_styles_router.get(
+    "",
+    response_model=list[CuisineStyleResponse],
+    summary="Cuisine styles a restaurant may be created with",
+)
+def cuisine_styles() -> list[restaurant_service.CuisineStyle]:
+    try:
+        return restaurant_service.list_cuisine_styles()
     except restaurant_service.RestaurantStoreError as error:
         _raise_http_error(error)
 

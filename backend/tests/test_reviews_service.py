@@ -63,6 +63,7 @@ def insert_restaurant(engine, restaurant_id):
                 id=restaurant_id,
                 name="Restaurante de prueba",
                 normalized_name="restaurante de prueba",
+                search_name="restaurante de prueba",
                 address="Santiago",
                 normalized_address="santiago",
                 identity_key="test-identity",

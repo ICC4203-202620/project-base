@@ -80,6 +80,31 @@ class CuisineStyleResponse(BaseModel):
     name: str
 
 
+class RestaurantSummary(BaseModel):
+    """The shape every restaurant collection returns.
+
+    Search, the map of #37 and the nearby search of #38 feed the same card and
+    the same markers in the client. Three different shapes of the same object
+    would force the frontend to normalize them before drawing.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    name: str
+    address: str
+    latitude: float
+    longitude: float
+    cuisine_styles: list[CuisineStyleResponse]
+
+
+class RestaurantPage(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[RestaurantSummary]
+    next_cursor: str | None
+
+
 class RestaurantResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

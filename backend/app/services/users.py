@@ -21,7 +21,7 @@ from app.db.schema import reviews, user_follows, users
 from app.db.session import engine
 from app.services.activity import review_activity_item, review_activity_statement
 from app.services.auth import normalize_handle
-from app.services.cursors import decode_cursor, encode_cursor, utc_timestamp
+from app.services.cursors import decode_time_cursor, encode_time_cursor, utc_timestamp
 from app.services.reviews import PUBLIC_VISIBILITY
 
 
@@ -183,7 +183,7 @@ def get_activity(handle: str, *, viewer_id: UUID, limit: int, cursor: str | None
 
             statement = review_activity_statement(viewer_id).where(reviews.c.author_id == author_id)
             if cursor:
-                occurred_at, activity_id = decode_cursor(cursor)
+                occurred_at, activity_id = decode_time_cursor(cursor)
                 statement = statement.where(
                     or_(
                         reviews.c.created_at < occurred_at,
@@ -208,5 +208,7 @@ def get_activity(handle: str, *, viewer_id: UUID, limit: int, cursor: str | None
     rows = rows[:limit]
     return {
         "items": [review_activity_item(row) for row in rows],
-        "next_cursor": encode_cursor(rows[-1]["created_at"], rows[-1]["id"]) if has_next else None,
+        "next_cursor": encode_time_cursor(rows[-1]["created_at"], rows[-1]["id"])
+        if has_next
+        else None,
     }

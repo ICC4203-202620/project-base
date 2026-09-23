@@ -140,9 +140,9 @@ def test_lambda_handler_serves_protected_restaurant_collection(monkeypatch):
     )
     received = {}
 
-    def list_restaurants(*, limit, offset):
-        received.update(limit=limit, offset=offset)
-        return [restaurant]
+    def list_restaurants(*, query, limit, cursor):
+        received.update(query=query, limit=limit, cursor=cursor)
+        return restaurant_service.RestaurantPage(items=(restaurant,), next_cursor=None)
 
     monkeypatch.setattr(restaurant_service, "list_restaurants", list_restaurants)
     app.dependency_overrides[get_current_session] = lambda: None
@@ -151,7 +151,7 @@ def test_lambda_handler_serves_protected_restaurant_collection(monkeypatch):
             api_gateway_event(
                 "GET",
                 "/api/v1/restaurants",
-                query_string="limit=5&offset=2",
+                query_string="q=lambda&limit=5",
             ),
             LambdaContext(),
         )
@@ -159,8 +159,8 @@ def test_lambda_handler_serves_protected_restaurant_collection(monkeypatch):
         app.dependency_overrides.clear()
 
     assert response["statusCode"] == 200
-    assert json.loads(response["body"])[0]["id"] == str(restaurant.id)
-    assert received == {"limit": 5, "offset": 2}
+    assert json.loads(response["body"])["items"][0]["id"] == str(restaurant.id)
+    assert received == {"query": "lambda", "limit": 5, "cursor": None}
 
 
 def test_lambda_handler_parses_multipart_review_upload(monkeypatch):

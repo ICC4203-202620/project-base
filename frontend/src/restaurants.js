@@ -70,7 +70,7 @@ export function createRestaurantsController({
     });
 
     try {
-      const items = await api.restaurants({ signal: controller.signal });
+      const { items } = await api.restaurants({ signal: controller.signal });
       if (version !== requestVersion) {
         return state;
       }

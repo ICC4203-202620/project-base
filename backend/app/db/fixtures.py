@@ -241,4 +241,22 @@ RESTAURANTS = (
         Decimal("-70.611420"),
         ("italiana", "cafeteria"),
     ),
+    # Los dos siguientes ejercitan la búsqueda: «cafe» debe encontrar «Café
+    # Ñielol» pese a los acentos, y «cocina» debe devolver dos restaurantes.
+    RestaurantFixture(
+        UUID("20000000-0000-4000-8000-000000000011"),
+        "Café Ñielol",
+        "Merced 120, Santiago",
+        Decimal("-33.436640"),
+        Decimal("-70.646980"),
+        ("cafeteria",),
+    ),
+    RestaurantFixture(
+        UUID("20000000-0000-4000-8000-000000000012"),
+        "Cocina Andina",
+        "Av. Matta 980, Santiago",
+        Decimal("-33.462310"),
+        Decimal("-70.645510"),
+        ("peruana", "chilena"),
+    ),
 )

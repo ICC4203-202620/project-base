@@ -78,6 +78,10 @@ restaurants = Table(
     Column("id", Uuid(as_uuid=True), primary_key=True),
     Column("name", String(120), nullable=False),
     Column("normalized_name", String(240), nullable=False),
+    # Search form: same text without diacritics. It is a separate column and
+    # not a replacement, because duplicate detection must keep telling
+    # "Café Perú" and "Cafe Peru" apart while search finds them together.
+    Column("search_name", String(240), nullable=False),
     Column("address", String(255), nullable=False),
     Column("normalized_address", String(510), nullable=False),
     Column("identity_key", String(64), nullable=False),
@@ -105,6 +109,11 @@ Index(
 Index(
     "ix_restaurants_normalized_name_id",
     restaurants.c.normalized_name,
+    restaurants.c.id,
+)
+Index(
+    "ix_restaurants_search_name_id",
+    restaurants.c.search_name,
     restaurants.c.id,
 )
 

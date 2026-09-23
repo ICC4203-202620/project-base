@@ -26,7 +26,11 @@ from app.db.schema import (
 )
 from app.db.session import engine
 from app.media.storage import MediaStorage, get_media_storage
-from app.services.restaurants import normalize_restaurant_text, restaurant_identity_key
+from app.services.restaurants import (
+    normalize_restaurant_search_text,
+    normalize_restaurant_text,
+    restaurant_identity_key,
+)
 
 
 class FixtureIdentityConflictError(RuntimeError):
@@ -117,6 +121,7 @@ def _seed_restaurants(
     changed = False
     for fixture in RESTAURANTS:
         normalized_name = normalize_restaurant_text(fixture.name)
+        search_name = normalize_restaurant_search_text(fixture.name)
         normalized_address = normalize_restaurant_text(fixture.address)
         identity_key = restaurant_identity_key(fixture.name, fixture.address)
         id_match = by_id.get(fixture.id)
@@ -135,6 +140,7 @@ def _seed_restaurants(
                 id=fixture.id,
                 name=fixture.name,
                 normalized_name=normalized_name,
+                search_name=search_name,
                 address=fixture.address,
                 normalized_address=normalized_address,
                 identity_key=identity_key,

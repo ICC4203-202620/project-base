@@ -251,6 +251,7 @@ def test_seed_maps_restaurant_identity_collision_to_persisted_id(monkeypatch, fi
                 id=persisted_id,
                 name=fixture.name,
                 normalized_name=seed_module.normalize_restaurant_text(fixture.name),
+                search_name=seed_module.normalize_restaurant_search_text(fixture.name),
                 address=fixture.address,
                 normalized_address=seed_module.normalize_restaurant_text(fixture.address),
                 identity_key=seed_module.restaurant_identity_key(fixture.name, fixture.address),

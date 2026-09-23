@@ -261,6 +261,27 @@ como el patrón N+1. `limit` está acotado a 100 y `offset` nunca es negativo. L
 FastAPI](https://fastapi.tiangolo.com/tutorial/query-params-str-validations/)
 explica cómo estas restricciones pasan además al esquema OpenAPI.
 
+Las dos formas normalizadas del nombre no son redundantes. `normalized_name`
+conserva los diacríticos, porque la detección de duplicados tiene que seguir
+distinguiendo «Café Perú» de «Cafe Peru» como dos nombres que dos personas
+escribieron distinto. `search_name` los pliega, porque quien escribe «cafe»
+espera encontrar «Café». Una sola columna obligaría a elegir cuál de las dos
+cosas se rompe.
+
+La búsqueda usa `LIKE` sobre `search_name` y escapa los comodines que el
+usuario haya escrito; un `%` sin escapar devolvería la colección completa. No
+se usan trigramas ni búsqueda de texto completo: atan el proyecto a PostgreSQL
+y la entrega 4 migra a Aurora DSQL.
+
+El orden de la colección es alfabético sobre `search_name`, que es la columna
+que el índice sirve, y no por relevancia: un cursor reanuda desde una posición
+que no puede depender del término buscado.
+
+La migración `0100` copia la normalización en lugar de importarla del
+servicio. Una migración registra lo que se calculó cuando corrió; importar
+código de aplicación dejaría que un cambio posterior a esa función redefina el
+historial en silencio.
+
 Para detectar duplicados, la aplicación normaliza nombre y dirección mediante
 Unicode NFKC, colapsa whitespace y aplica `casefold`. Luego calcula una clave
 SHA-256 sobre ambas partes. El índice único de `identity_key` hace que dos

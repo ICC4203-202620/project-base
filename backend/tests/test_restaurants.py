@@ -9,6 +9,7 @@ from app.api.dependencies import get_current_session
 from app.main import app
 from app.services import restaurants as restaurant_service
 from app.services.auth import AuthenticatedSession
+from app.services.cursors import InvalidCursorError
 
 
 def sample_session() -> AuthenticatedSession:
@@ -74,24 +75,63 @@ def test_all_routes_require_a_session_before_calling_service(monkeypatch, method
     assert response.status_code == 401
 
 
-def test_index_uses_bounded_pagination_and_serializes_styles(monkeypatch, authenticated):
+def test_index_pages_by_cursor_and_serializes_the_shared_summary(monkeypatch, authenticated):
     restaurant = sample_restaurant()
     received = {}
 
-    def list_restaurants(*, limit, offset):
-        received.update(limit=limit, offset=offset)
-        return [restaurant]
+    def list_restaurants(*, query, limit, cursor):
+        received.update(query=query, limit=limit, cursor=cursor)
+        return restaurant_service.RestaurantPage(items=(restaurant,), next_cursor="siguiente")
 
     monkeypatch.setattr(restaurant_service, "list_restaurants", list_restaurants)
 
-    response = TestClient(app).get("/api/v1/restaurants?limit=5&offset=2")
+    response = TestClient(app).get("/api/v1/restaurants?q=cocina&limit=5&cursor=previo")
 
     assert response.status_code == 200
-    assert received == {"limit": 5, "offset": 2}
-    assert response.json()[0]["id"] == str(restaurant.id)
-    assert response.json()[0]["latitude"] == -33.4372
-    assert response.json()[0]["cuisine_styles"][0]["slug"] == "chilena"
+    assert received == {"query": "cocina", "limit": 5, "cursor": "previo"}
+    payload = response.json()
+    assert payload["next_cursor"] == "siguiente"
+    assert payload["items"][0]["id"] == str(restaurant.id)
+    assert payload["items"][0]["address"] == restaurant.address
+    assert payload["items"][0]["latitude"] == -33.4372
+    assert payload["items"][0]["cuisine_styles"][0]["slug"] == "chilena"
     assert TestClient(app).get("/api/v1/restaurants?limit=101").status_code == 422
+
+
+def test_index_rejects_a_short_term_and_a_foreign_cursor(monkeypatch, authenticated):
+    monkeypatch.setattr(
+        restaurant_service,
+        "list_restaurants",
+        lambda **kwargs: (_ for _ in ()).throw(restaurant_service.SearchTermTooShortError()),
+    )
+    short = TestClient(app).get("/api/v1/restaurants?q=c")
+    assert short.status_code == 422
+    assert short.json()["detail"][0]["loc"] == ["query", "q"]
+
+    monkeypatch.setattr(
+        restaurant_service,
+        "list_restaurants",
+        lambda **kwargs: (_ for _ in ()).throw(InvalidCursorError()),
+    )
+    assert TestClient(app).get("/api/v1/restaurants?cursor=roto").status_code == 422
+
+
+def test_cuisine_style_catalogue_requires_a_session(monkeypatch):
+    monkeypatch.setattr(
+        restaurant_service,
+        "list_cuisine_styles",
+        lambda: [restaurant_service.CuisineStyle(id=uuid4(), slug="chilena", name="Chilena")],
+    )
+    assert TestClient(app).get("/api/v1/cuisine-styles").status_code == 401
+
+    app.dependency_overrides[get_current_session] = sample_session
+    try:
+        response = TestClient(app).get("/api/v1/cuisine-styles")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()[0]["slug"] == "chilena"
 
 
 def test_create_returns_resource_and_location(monkeypatch, authenticated):

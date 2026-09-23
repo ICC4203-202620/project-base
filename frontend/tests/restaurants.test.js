@@ -12,9 +12,16 @@ const fixtures = Object.freeze([
     id: "20000000-0000-4000-8000-000000000001",
     name: "Cocina del Barrio",
     address: "Av. Italia 1280, Providencia",
+    latitude: -33.43912,
+    longitude: -70.62513,
     cuisine_styles: [{ slug: "chilena", name: "Chilena" }],
   },
 ]);
+
+// La colección responde { items, next_cursor } desde la entrega 3.
+function page(items = fixtures, nextCursor = null) {
+  return { items, next_cursor: nextCursor };
+}
 
 function unauthorized() {
   return new ApiError("Not authenticated", { kind: "http", status: 401 });
@@ -26,7 +33,7 @@ test("the controller stays idle until an authenticated flow requests data", () =
     api: {
       restaurants: async () => {
         calls += 1;
-        return fixtures;
+        return page();
       },
     },
   });
@@ -38,7 +45,7 @@ test("the controller stays idle until an authenticated flow requests data", () =
 test("an authenticated load exposes the returned restaurants", async () => {
   const transitions = [];
   const controller = createRestaurantsController({
-    api: { restaurants: async () => fixtures },
+    api: { restaurants: async () => page() },
     onStateChange: (state) => transitions.push(state.status),
   });
 
@@ -55,7 +62,7 @@ test("an authenticated load exposes the returned restaurants", async () => {
 
 test("an empty collection has a state distinct from a network error", async () => {
   const empty = createRestaurantsController({
-    api: { restaurants: async () => [] },
+    api: { restaurants: async () => page([]) },
   });
   const unavailable = createRestaurantsController({
     api: {
@@ -109,7 +116,7 @@ test("reset discards an in-flight result and aborts its request", async () => {
 
   const loading = controller.load();
   controller.reset();
-  resolveRequest(fixtures);
+  resolveRequest(page());
   await loading;
 
   assert.equal(receivedSignal.aborted, true);
@@ -125,7 +132,7 @@ test("a recoverable error can be retried", async () => {
         if (calls === 1) {
           throw new ApiError("unavailable", { kind: "http", status: 503 });
         }
-        return fixtures;
+        return page();
       },
     },
   });

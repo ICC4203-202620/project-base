@@ -76,8 +76,19 @@ export function createApiClient(fetchImplementation = globalThis.fetch) {
   return Object.freeze({
     health: () => request("/healthz"),
     session: () => request("/api/v1/auth/session"),
-    restaurants: ({ limit = 20, offset = 0, signal } = {}) =>
-      request(`/api/v1/restaurants?limit=${limit}&offset=${offset}`, { signal }),
+    // La colección responde { items, next_cursor } y se recorre por cursor
+    // opaco: `offset` repite y salta filas mientras otras personas crean
+    // restaurantes. `q` la acota a un término del nombre.
+    restaurants: ({ limit = 20, cursor, q, signal } = {}) => {
+      const parameters = new URLSearchParams({ limit: String(limit) });
+      if (q) {
+        parameters.set("q", q);
+      }
+      if (cursor) {
+        parameters.set("cursor", cursor);
+      }
+      return request(`/api/v1/restaurants?${parameters}`, { signal });
+    },
     login: (credentials) =>
       request("/api/v1/auth/login", {
         method: "POST",

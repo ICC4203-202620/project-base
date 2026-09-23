@@ -4,16 +4,20 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from typing import Any, cast
-from unicodedata import normalize
+from unicodedata import combining, normalize
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import and_, delete, insert, or_, select, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.db.retry import run_transaction_with_retry
 from app.db.schema import cuisine_styles, restaurant_cuisine_styles, restaurants
 from app.db.session import engine
+from app.services.cursors import decode_cursor, encode_cursor
+
+MINIMUM_SEARCH_LENGTH = 2
+LIKE_ESCAPE = "\\"
 
 
 class RestaurantNotFoundError(Exception):
@@ -21,7 +25,21 @@ class RestaurantNotFoundError(Exception):
 
 
 class DuplicateRestaurantError(Exception):
-    """A restaurant already uses the normalized name and address."""
+    """A restaurant already uses the normalized name and address.
+
+    It carries the existing row when it is known. The statement asks that what
+    different people contribute end up on a single page, and for that the
+    interface has to be able to take the person to the page that already
+    exists instead of leaving them on an error.
+    """
+
+    def __init__(self, existing: "Restaurant | None" = None):
+        self.existing = existing
+        super().__init__(str(existing.id) if existing else "")
+
+
+class SearchTermTooShortError(Exception):
+    """A one-character term would return the whole collection."""
 
 
 class UnknownCuisineStylesError(Exception):
@@ -44,6 +62,12 @@ class CuisineStyle:
 
 
 @dataclass(frozen=True)
+class RestaurantPage:
+    items: tuple["Restaurant", ...]
+    next_cursor: str | None
+
+
+@dataclass(frozen=True)
 class Restaurant:
     id: UUID
     name: str
@@ -56,8 +80,30 @@ class Restaurant:
 
 
 def normalize_restaurant_text(value: str) -> str:
-    """Return the stable comparison form used by the duplicate constraint."""
+    """Return the stable comparison form used by the duplicate constraint.
+
+    It keeps diacritics, so «Café Perú» and «Cafe Peru» remain two different
+    names that two different people may have contributed.
+    """
     return " ".join(normalize("NFKC", value).split()).casefold()
+
+
+def normalize_restaurant_search_text(value: str) -> str:
+    """Return the comparison form used by search, without diacritics.
+
+    Someone typing «cafe» expects to find «Café». This is deliberately not the
+    form above: search brings both together, duplicate detection keeps them
+    apart.
+    """
+    decomposed = normalize("NFKD", value)
+    without_marks = "".join(character for character in decomposed if not combining(character))
+    return " ".join(normalize("NFKC", without_marks).split()).casefold()
+
+
+def _contains_pattern(term: str) -> str:
+    """Escape what LIKE would otherwise read as a wildcard."""
+    escaped = term.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2).replace("%", f"{LIKE_ESCAPE}%")
+    return f"%{escaped.replace('_', f'{LIKE_ESCAPE}_')}%"
 
 
 def restaurant_identity_key(name: str, address: str) -> str:
@@ -138,27 +184,84 @@ def _resolve_cuisine_style_ids(connection: Connection, slugs: Sequence[str]) -> 
     return [ids_by_slug[slug] for slug in slugs]
 
 
+def _find_by_identity_key(identity_key: str) -> Restaurant | None:
+    """Recover the row that won a concurrent creation, best effort.
+
+    The unique index reports a collision without saying against what, and the
+    interface needs the existing restaurant to send the person to it.
+    """
+    try:
+        with engine.connect() as connection:
+            existing_id = connection.scalar(
+                select(restaurants.c.id).where(restaurants.c.identity_key == identity_key)
+            )
+            return _get_restaurant(connection, existing_id) if existing_id else None
+    except (RestaurantNotFoundError, SQLAlchemyError):
+        return None
+
+
 def _is_unique_violation(error: IntegrityError) -> bool:
     sqlstate = getattr(error.orig, "sqlstate", None) or getattr(error.orig, "pgcode", None)
     return sqlstate == "23505"
 
 
-def list_restaurants(*, limit: int, offset: int) -> list[Restaurant]:
+def list_cuisine_styles() -> list[CuisineStyle]:
+    try:
+        with engine.connect() as connection:
+            rows = connection.execute(
+                select(cuisine_styles).order_by(cuisine_styles.c.name, cuisine_styles.c.slug)
+            ).mappings()
+            return [CuisineStyle(id=row["id"], slug=row["slug"], name=row["name"]) for row in rows]
+    except SQLAlchemyError as error:
+        raise RestaurantStoreError from error
+
+
+def list_restaurants(*, query: str | None, limit: int, cursor: str | None = None) -> RestaurantPage:
+    """Page the collection, optionally narrowed by a term in the name.
+
+    The order is alphabetical on the search form and not by relevance: a
+    cursor has to resume from a stable position, and a ranking that depends on
+    the term would move rows between pages.
+    """
+    statement = select(restaurants)
+    if query is not None:
+        term = normalize_restaurant_search_text(query)
+        if len(term) < MINIMUM_SEARCH_LENGTH:
+            raise SearchTermTooShortError
+        statement = statement.where(
+            restaurants.c.search_name.like(_contains_pattern(term), escape=LIKE_ESCAPE)
+        )
+    if cursor:
+        search_name, restaurant_id = decode_cursor(cursor)
+        statement = statement.where(
+            or_(
+                restaurants.c.search_name > search_name,
+                and_(
+                    restaurants.c.search_name == search_name,
+                    restaurants.c.id > restaurant_id,
+                ),
+            )
+        )
+
     try:
         with engine.connect() as connection:
             rows = (
                 connection.execute(
-                    select(restaurants)
-                    .order_by(restaurants.c.normalized_name, restaurants.c.id)
-                    .limit(limit)
-                    .offset(offset)
+                    statement.order_by(restaurants.c.search_name, restaurants.c.id).limit(limit + 1)
                 )
                 .mappings()
                 .all()
             )
-            return _to_restaurants(connection, rows)
+            has_next = len(rows) > limit
+            rows = rows[:limit]
+            items = _to_restaurants(connection, rows)
     except SQLAlchemyError as error:
         raise RestaurantStoreError from error
+
+    return RestaurantPage(
+        items=tuple(items),
+        next_cursor=(encode_cursor(rows[-1]["search_name"], rows[-1]["id"]) if has_next else None),
+    )
 
 
 def get_restaurant(restaurant_id: UUID) -> Restaurant:
@@ -182,6 +285,7 @@ def create_restaurant(
     restaurant_id = uuid4()
     timestamp = datetime.now(UTC)
     normalized_name = normalize_restaurant_text(name)
+    search_name = normalize_restaurant_search_text(name)
     normalized_address = normalize_restaurant_text(address)
     identity_key = restaurant_identity_key(name, address)
 
@@ -190,7 +294,7 @@ def create_restaurant(
             select(restaurants.c.id).where(restaurants.c.identity_key == identity_key)
         )
         if duplicate:
-            raise DuplicateRestaurantError
+            raise DuplicateRestaurantError(_get_restaurant(connection, duplicate))
 
         style_ids = _resolve_cuisine_style_ids(connection, cuisine_style_slugs)
         connection.execute(
@@ -198,6 +302,7 @@ def create_restaurant(
                 id=restaurant_id,
                 name=name,
                 normalized_name=normalized_name,
+                search_name=search_name,
                 address=address,
                 normalized_address=normalized_address,
                 identity_key=identity_key,
@@ -222,7 +327,7 @@ def create_restaurant(
         raise
     except IntegrityError as error:
         if _is_unique_violation(error):
-            raise DuplicateRestaurantError from error
+            raise DuplicateRestaurantError(_find_by_identity_key(identity_key)) from error
         raise RestaurantStoreError from error
     except SQLAlchemyError as error:
         raise RestaurantStoreError from error
@@ -256,6 +361,9 @@ def update_restaurant(restaurant_id: UUID, changes: Mapping[str, object]) -> Res
             else current["normalized_address"]
         )
         values["normalized_name"] = normalized_name
+        values["search_name"] = normalize_restaurant_search_text(
+            cast(str, changes.get("name", current["name"]))
+        )
         values["normalized_address"] = normalized_address
         identity_key = restaurant_identity_key(
             cast(str, changes.get("name", current["name"])),
@@ -270,7 +378,7 @@ def update_restaurant(restaurant_id: UUID, changes: Mapping[str, object]) -> Res
             )
         )
         if duplicate:
-            raise DuplicateRestaurantError
+            raise DuplicateRestaurantError(_get_restaurant(connection, duplicate))
 
         style_ids = None
         if "cuisine_styles" in changes:
@@ -302,7 +410,7 @@ def update_restaurant(restaurant_id: UUID, changes: Mapping[str, object]) -> Res
         raise
     except IntegrityError as error:
         if _is_unique_violation(error):
-            raise DuplicateRestaurantError from error
+            raise DuplicateRestaurantError() from error
         raise RestaurantStoreError from error
     except SQLAlchemyError as error:
         raise RestaurantStoreError from error

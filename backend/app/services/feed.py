@@ -10,7 +10,7 @@ from app.services.activity import (
     review_activity_statement,
     review_object,
 )
-from app.services.cursors import decode_cursor, encode_cursor
+from app.services.cursors import decode_time_cursor, encode_time_cursor
 from app.services.reviews import PUBLIC_VISIBILITY, ReviewNotFoundError, ReviewStoreError
 
 
@@ -39,7 +39,7 @@ def get_feed(viewer_id: UUID, *, limit: int, cursor: str | None = None) -> dict:
     # instant it was written.
     statement = _followed_statement(viewer_id).where(reviews.c.visibility == PUBLIC_VISIBILITY)
     if cursor:
-        published_at, review_id = decode_cursor(cursor)
+        published_at, review_id = decode_time_cursor(cursor)
         statement = statement.where(
             or_(
                 reviews.c.created_at < published_at,
@@ -56,7 +56,9 @@ def get_feed(viewer_id: UUID, *, limit: int, cursor: str | None = None) -> dict:
     rows = rows[:limit]
     return {
         "items": [review_activity_item(row) for row in rows],
-        "next_cursor": encode_cursor(rows[-1]["created_at"], rows[-1]["id"]) if has_next else None,
+        "next_cursor": encode_time_cursor(rows[-1]["created_at"], rows[-1]["id"])
+        if has_next
+        else None,
     }
 
 
