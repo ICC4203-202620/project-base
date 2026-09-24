@@ -109,6 +109,10 @@ Git resuelve los conflictos de texto; los cambios de contrato no aparecen como c
 
 El cambio es deliberado. La paginación por `offset` repite y salta elementos cuando otros usuarios agregan restaurantes mientras alguien recorre la colección, y esta entrega la recorre en la búsqueda, en el mapa y en el perfil. El feed ya usaba cursor por la misma razón.
 
+`POST /api/v1/reviews` recibía `multipart/form-data` con la fotografía, el nombre del plato y el texto, y creaba ambas cosas en una operación. Ahora recibe JSON con `photo_id`, `rating`, `text` y `visibility`, sobre una fotografía que ya existe: publicar la foto de un plato es una acción y reseñarla es otra, como las describe el enunciado general. El grupo que consumía el contrato anterior recibirá `422` hasta que envíe JSON.
+
+El cambio ordena tres cosas que antes no calzaban. La calificación existía en el enunciado desde el principio y la tabla no la tenía. El plato pasa a vivir en la fotografía, que es lo que se publica, y la reseña lo toma de ahí. Y la visibilidad de la reseña la elige quien escribe, con la regla de que nunca puede ser más visible que la fotografía de la que habla.
+
 El contrato vigente siempre es el que expone `/docs` en la instalación que el grupo está ejecutando. Conviene revisarlo después de mezclar, antes de escribir el cliente.
 
 ## Continuidad con la entrega 2

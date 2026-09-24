@@ -6,6 +6,7 @@ from sqlalchemy import (
     Index,
     MetaData,
     Numeric,
+    SmallInteger,
     String,
     Table,
     Uuid,
@@ -216,10 +217,15 @@ reviews = Table(
     Column("photo_id", Uuid(as_uuid=True), nullable=False),
     # The dish lives on the photograph. Keeping it in two tables would
     # guarantee that at some point they disagree.
+    # One to five, the same scale the evaluation criteria of épica 11 use, so
+    # the interface presents one kind of control and both numbers read
+    # together without translation.
+    Column("rating", SmallInteger(), nullable=False),
     Column("text", String(2000), nullable=False),
     Column("visibility", String(16), nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("rating BETWEEN 1 AND 5", name="ck_reviews_rating_range"),
 )
 
 Index("uq_reviews_photo_id", reviews.c.photo_id, unique=True)
