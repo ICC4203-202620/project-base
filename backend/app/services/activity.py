@@ -32,7 +32,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import Column, literal, or_, select
+from sqlalchemy import Column, and_, distinct, func, literal, or_, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql import Select
 
@@ -60,19 +60,68 @@ class ActivitySource:
     # Some rows of a table are not activity on their own: a photograph that
     # already carries a review is published by that review.
     extra_condition: Callable[[], object] | None = None
+    # When several rows are one act. Photographs published together share an
+    # upload group, and the feed has to show them as one entry.
+    grouped_by: Column | None = None
+
+    def _sort_key(self, column: Column):
+        """The value a page is ordered by, aggregated when rows form an act."""
+        return func.min(column) if self.grouped_by is not None else column
+
+    @property
+    def _identity(self) -> Column:
+        return self.grouped_by if self.grouped_by is not None else self.identifier
+
+    def after(self, keys: Select, *, by: str, value, identifier: UUID) -> Select:
+        """Restrict a page of keys to what comes after a cursor.
+
+        A grouped source compares the aggregated instant, so the restriction
+        has to be a HAVING: a WHERE would be applied to the rows before they
+        become an act, and would cut the act in the middle.
+        """
+        column = self._sort_key(self.occurred_at if by == "occurred" else self.published_at)
+        condition = or_(
+            column < value,
+            and_(column == value, self._identity < identifier),
+        )
+        return keys.having(condition) if self.grouped_by is not None else keys.where(condition)
+
+    def count(self):
+        """How many activities this source holds, which is acts and not rows.
+
+        A counter that counted rows would promise more entries than the list
+        produces as soon as one act carries several of them.
+        """
+        return (
+            func.count(distinct(self.grouped_by)) if self.grouped_by is not None else func.count()
+        )
 
     def visible(self, viewer_id: UUID):
         """Public, or written by whoever is looking."""
         return or_(self.visibility == PUBLIC, self.author_id == viewer_id)
 
     def keys(self, viewer_id: UUID) -> Select:
-        """The sort keys of this source, already filtered by visibility."""
-        keys = select(
-            literal(self.type).label("type"),
-            self.occurred_at.label("occurred_at"),
-            self.published_at.label("published_at"),
-            self.identifier.label("id"),
-        ).where(self.visible(viewer_id))
+        """The sort keys of this source, already filtered by visibility.
+
+        A grouped source yields one key per act rather than one per row, and
+        dates it by its earliest row so the entry does not move in the feed
+        while the rest of the group is still arriving.
+        """
+        if self.grouped_by is None:
+            keys = select(
+                literal(self.type).label("type"),
+                self.occurred_at.label("occurred_at"),
+                self.published_at.label("published_at"),
+                self.identifier.label("id"),
+            )
+        else:
+            keys = select(
+                literal(self.type).label("type"),
+                func.min(self.occurred_at).label("occurred_at"),
+                func.min(self.published_at).label("published_at"),
+                self.grouped_by.label("id"),
+            ).group_by(self.grouped_by)
+        keys = keys.where(self.visible(viewer_id))
         if self.extra_condition is not None:
             keys = keys.where(self.extra_condition())
         return keys
@@ -318,15 +367,27 @@ def photo_activity_item(rows: Sequence[Mapping]) -> dict:
     }
 
 
+PHOTO_ACT = func.coalesce(photos.c.upload_group, photos.c.id)
+
+
 def _hydrate_photos(
     connection: Connection, viewer_id: UUID, identifiers: Sequence[UUID]
 ) -> dict[UUID, dict]:
+    """One query for every act in the page, not one per photograph."""
     rows = (
-        connection.execute(photo_activity_statement(viewer_id).where(photos.c.id.in_(identifiers)))
+        connection.execute(
+            photo_activity_statement(viewer_id)
+            .add_columns(PHOTO_ACT.label("act"))
+            .where(PHOTO_ACT.in_(identifiers))
+            .order_by(photos.c.created_at, photos.c.id)
+        )
         .mappings()
         .all()
     )
-    return {row["id"]: photo_activity_item([row]) for row in rows}
+    grouped: dict[UUID, list] = {}
+    for row in rows:
+        grouped.setdefault(row["act"], []).append(row)
+    return {act: photo_activity_item(act_rows) for act, act_rows in grouped.items()}
 
 
 # --- The registry ------------------------------------------------------------
@@ -362,6 +423,7 @@ ACTIVITY_SOURCES: tuple[ActivitySource, ...] = (
         identifier=photos.c.id,
         hydrate=_hydrate_photos,
         extra_condition=_photo_without_review,
+        grouped_by=PHOTO_ACT,
     ),
 )
 

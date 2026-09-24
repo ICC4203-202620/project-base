@@ -482,6 +482,21 @@ que se publica: la reseña es una opinión que se agrega encima. La migración
 reseña lo conserva, derivado, de modo que el cambio no se note desde el
 cliente.
 
+El grupo de subida lo aporta el cliente y no lo infiere el backend. Agrupar
+por una ventana de tiempo produce resultados que el usuario no puede explicar:
+dos publicaciones deliberadamente distintas terminan juntas, o una carga lenta
+termina partida en dos. La coherencia del grupo se comprueba dentro de la
+misma transacción que escribe la fila, de modo que dos solicitudes simultáneas
+del mismo acto no puedan dejarlo inconsistente.
+
+Un origen de actividad que agrupa —hoy sólo el de fotografías— cambia tres
+cosas respecto de uno que no lo hace, y las tres viven en `ActivitySource`:
+sus claves salen de un `GROUP BY` con `MIN` sobre los dos instantes, su
+contador cuenta actos distintos y no filas, y el cursor se aplica como
+`HAVING` y no como `WHERE`. Lo último no es un detalle: un `WHERE` se
+evaluaría sobre las filas antes de que formen un acto y cortaría el acto por
+la mitad.
+
 Una fotografía que ya tiene reseña no es actividad por derecho propio. El
 origen de actividad de fotografías lo expresa con una condición extra —`NOT
 EXISTS` sobre la reseña—, que el contador del perfil aplica también, para que

@@ -142,6 +142,7 @@ def test_a_photograph_of_a_dish_has_to_name_the_dish(seeded_database):
         {"dish_name": "   "},
         {"kind": "menu"},
         {"kind": "venue"},
+        {"kind": "mural"},
         {"visibility": "secreta"},
     ):
         with pytest.raises(photo_service.InvalidPhotoPublicationError):
@@ -320,6 +321,17 @@ def test_the_endpoint_publishes_and_rejects_what_it_must(seeded_database):
             },
             files={"photo": ("menu.png", png_file().read(), "image/png")},
         )
+        menu_with_dish = client.post(
+            "/api/v1/photos",
+            headers={"Origin": "http://testserver"},
+            data={
+                "restaurant_id": str(RESTAURANT),
+                "kind": "menu",
+                "dish_name": "Sopaipillas",
+                "visibility": "public",
+            },
+            files={"photo": ("menu.png", png_file().read(), "image/png")},
+        )
         unknown_restaurant = client.post(
             "/api/v1/photos",
             headers={"Origin": "http://testserver"},
@@ -352,7 +364,10 @@ def test_the_endpoint_publishes_and_rejects_what_it_must(seeded_database):
     assert created.json()["caption"] == "Con pebre"
     assert created.json()["review_id"] is None
     assert without_dish.status_code == 422
-    assert menu_kind.status_code == 422
+    # A menu no longer needs a dish, and must not carry one.
+    assert menu_kind.status_code == 201
+    assert menu_kind.json()["dish_name"] is None
+    assert menu_with_dish.status_code == 422
     assert unknown_restaurant.status_code == 404
     assert untrusted.status_code == 403
     assert metadata_of.status_code == 200
@@ -392,3 +407,202 @@ def test_the_review_contract_did_not_change(seeded_database):
     assert review.photo.dish_name == "Charquicán"
     assert review.photo.visibility == "public"
     assert review.created_at == review.photo.created_at
+
+
+# --- Menus, premises and the act of publishing several ------------------------
+
+
+def group_of(count, *, storage=None, author=AUTHOR, **overrides):
+    """Publish `count` photographs as a single act, one request each."""
+    storage = storage or MemoryStorage()
+    upload_group = uuid4()
+    arguments = {"kind": "menu", "dish_name": None, "author_id": author.id}
+    arguments.update(overrides)
+    return upload_group, [
+        publish(storage=storage, upload_group=upload_group, **arguments) for _ in range(count)
+    ]
+
+
+def test_a_menu_and_a_venue_photograph_carry_no_dish(seeded_database):
+    del seeded_database
+
+    menu = publish(kind="menu", dish_name=None, visibility="public")
+    venue = publish(kind="venue", dish_name=None, visibility="private")
+
+    assert (menu.kind, menu.dish_name) == ("menu", None)
+    assert (venue.kind, venue.dish_name, venue.visibility) == ("venue", None, "private")
+
+
+def test_a_menu_or_venue_photograph_refuses_a_dish(seeded_database):
+    del seeded_database
+
+    for kind in ("menu", "venue"):
+        with pytest.raises(photo_service.InvalidPhotoPublicationError):
+            publish(kind=kind, dish_name="Sopaipillas")
+
+
+def test_a_group_is_one_activity_in_the_feed_and_in_the_profile(seeded_database):
+    del seeded_database
+    upload_group, published = group_of(3, author=OTHER)
+
+    feed = feed_service.get_feed(AUTHOR.id, limit=50)
+    profile = user_service.get_activity(OTHER.handle, viewer_id=AUTHOR.id, limit=50)
+    entries = [
+        item
+        for item in feed["items"]
+        if item["type"] == "photo"
+        and {photo["id"] for photo in item["photo"]["photos"]} & {p.id for p in published}
+    ]
+
+    assert len(entries) == 1
+    assert {photo["id"] for photo in entries[0]["photo"]["photos"]} == {p.id for p in published}
+    # And the same single entry in the profile of whoever published it.
+    profile_entries = [
+        item
+        for item in profile["items"]
+        if item["type"] == "photo"
+        and {photo["id"] for photo in item["photo"]["photos"]} & {p.id for p in published}
+    ]
+    assert len(profile_entries) == 1
+    del upload_group
+
+
+def test_a_group_is_dated_by_its_first_photograph(seeded_database):
+    del seeded_database
+    _, published = group_of(2, author=OTHER)
+
+    feed = feed_service.get_feed(AUTHOR.id, limit=50)
+    entry = next(
+        item
+        for item in feed["items"]
+        if item["type"] == "photo"
+        and {photo["id"] for photo in item["photo"]["photos"]} & {p.id for p in published}
+    )
+
+    assert entry["published_at"] == min(photo.created_at for photo in published)
+
+
+def test_a_group_refuses_a_photograph_that_does_not_belong_to_it(seeded_database):
+    del seeded_database
+    upload_group, _ = group_of(1, author=AUTHOR)
+
+    for overrides in (
+        {"author_id": OTHER.id},
+        {"restaurant_id": RESTAURANTS[1].id},
+        {"kind": "venue"},
+        {"visibility": "private"},
+        {"kind": "dish", "dish_name": "Sopaipillas"},
+    ):
+        arguments = {"kind": "menu", "dish_name": None, **overrides}
+        with pytest.raises(photo_service.InvalidPhotoPublicationError):
+            publish(upload_group=upload_group, **arguments)
+
+
+def test_a_group_stops_at_its_maximum(seeded_database):
+    del seeded_database
+    upload_group, _ = group_of(photo_service.MAXIMUM_PHOTOS_PER_GROUP, author=AUTHOR)
+
+    with pytest.raises(photo_service.InvalidPhotoPublicationError) as raised:
+        publish(upload_group=upload_group, kind="menu", dish_name=None)
+
+    assert "at most" in raised.value.reason
+
+
+def test_a_rejected_photograph_of_a_group_leaves_no_object_behind(seeded_database):
+    del seeded_database
+    upload_group, _ = group_of(1, author=AUTHOR)
+    storage = MemoryStorage()
+
+    with pytest.raises(photo_service.InvalidPhotoPublicationError):
+        publish(storage=storage, upload_group=upload_group, kind="venue", dish_name=None)
+
+    assert storage.deleted == storage.stored
+
+
+def test_a_private_group_is_all_or_nothing_for_a_third_party(seeded_database):
+    del seeded_database
+    _, published = group_of(2, author=AUTHOR, visibility="private")
+
+    seen = feed_service.get_feed(OTHER.id, limit=50)
+    own = user_service.get_activity(AUTHOR.handle, viewer_id=AUTHOR.id, limit=50)
+    own_entry = next(
+        item
+        for item in own["items"]
+        if item["type"] == "photo"
+        and {photo["id"] for photo in item["photo"]["photos"]} & {p.id for p in published}
+    )
+
+    assert not any(
+        {photo["id"] for photo in item["photo"]["photos"]} & {p.id for p in published}
+        for item in seen["items"]
+        if item["type"] == "photo"
+    )
+    assert len(own_entry["photo"]["photos"]) == 2
+
+
+def test_the_gallery_filters_by_kind(seeded_database):
+    del seeded_database
+
+    def gallery(kind=None):
+        return photo_service.list_restaurant_photos(
+            RESTAURANT, viewer_id=AUTHOR.id, limit=50, kind=kind
+        )
+
+    every = gallery()
+    dishes = gallery("dish")
+    menus = gallery("menu")
+    venues = gallery("venue")
+
+    assert {photo.kind for photo in dishes.items} == {"dish"}
+    assert {photo.kind for photo in menus.items} == {"menu"}
+    assert {photo.kind for photo in venues.items} == {"venue"}
+    assert len(every.items) == len(dishes.items) + len(menus.items) + len(venues.items)
+    with pytest.raises(photo_service.UnknownPhotoKindError):
+        gallery("mural")
+
+
+def test_a_kind_without_photographs_is_not_an_error(seeded_database):
+    del seeded_database
+    quiet = RESTAURANTS[6].id
+
+    page = photo_service.list_restaurant_photos(quiet, viewer_id=AUTHOR.id, limit=50, kind="menu")
+
+    assert page.items == ()
+    assert page.next_cursor is None
+
+
+def test_the_endpoint_publishes_a_group_and_the_gallery_filters_it(seeded_database):
+    del seeded_database
+    storage = MemoryStorage()
+    upload_group = str(uuid4())
+    app.dependency_overrides[get_current_session] = session
+    app.dependency_overrides[get_media_storage] = lambda: storage
+    client = TestClient(app)
+    try:
+        responses = [
+            client.post(
+                "/api/v1/photos",
+                headers={"Origin": "http://testserver"},
+                data={
+                    "restaurant_id": str(RESTAURANT),
+                    "kind": "venue",
+                    "visibility": "public",
+                    "upload_group": upload_group,
+                },
+                files={"photo": (f"venue{index}.png", png_file().read(), "image/png")},
+            )
+            for index in range(2)
+        ]
+        filtered = client.get(f"/api/v1/restaurants/{RESTAURANT}/photos?kind=venue")
+        unknown_kind = client.get(f"/api/v1/restaurants/{RESTAURANT}/photos?kind=mural")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [response.status_code for response in responses] == [201, 201]
+    assert filtered.status_code == 200
+    assert {photo["kind"] for photo in filtered.json()["items"]} == {"venue"}
+    assert {response.json()["id"] for response in responses} <= {
+        photo["id"] for photo in filtered.json()["items"]
+    }
+    assert unknown_kind.status_code == 422
+    assert unknown_kind.json()["detail"][0]["loc"] == ["query", "kind"]

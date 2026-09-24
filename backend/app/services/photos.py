@@ -41,9 +41,8 @@ DISH = "dish"
 MENU = "menu"
 VENUE = "venue"
 PHOTO_KINDS = (DISH, MENU, VENUE)
-# Épica 9 enables the other two. Until then the dish is the only thing a
-# photograph can show, and its name is required.
-PUBLISHABLE_KINDS = (DISH,)
+# A group without a limit turns one entry of the feed into a whole gallery.
+MAXIMUM_PHOTOS_PER_GROUP = 10
 
 IMAGE_FORMATS = {
     "JPEG": ("image/jpeg", "jpg"),
@@ -66,7 +65,15 @@ class PhotoTooLargeError(InvalidPhotoError):
 
 
 class InvalidPhotoPublicationError(Exception):
-    """The kind, the dish or the visibility cannot be accepted."""
+    """The kind, the dish, the visibility or the group cannot be accepted."""
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+class UnknownPhotoKindError(Exception):
+    """A filter asked for a kind of photograph that does not exist."""
 
     def __init__(self, reason: str):
         self.reason = reason
@@ -164,7 +171,17 @@ def list_restaurant_photos(
     viewer_id: UUID,
     limit: int,
     cursor: str | None = None,
+    kind: str | None = None,
 ) -> GalleryPage:
+    """The gallery of a restaurant, optionally narrowed to one kind.
+
+    The statement asks that the community learn the offer, the prices and the
+    premises of a restaurant, and those are three different walks over the
+    same gallery.
+    """
+    if kind is not None and kind not in PHOTO_KINDS:
+        raise UnknownPhotoKindError(f"kind must be one of {', '.join(PHOTO_KINDS)}")
+
     author = users.alias("author")
     statement = (
         select(
@@ -186,6 +203,8 @@ def list_restaurant_photos(
         )
         .where(photos.c.restaurant_id == restaurant_id, visible_photo_condition(viewer_id))
     )
+    if kind is not None:
+        statement = statement.where(photos.c.kind == kind)
     if cursor:
         published_at, photo_id = decode_time_cursor(cursor)
         statement = statement.where(
@@ -279,14 +298,70 @@ def compensate_storage(storage: MediaStorage, storage_key: str) -> None:
 
 
 def _validated_publication(kind: str, dish_name: str | None, visibility: str) -> str | None:
-    if kind not in PUBLISHABLE_KINDS:
-        raise InvalidPhotoPublicationError(f"kind must be one of {', '.join(PUBLISHABLE_KINDS)}")
+    """The dish is required for a dish and refused for the other two kinds.
+
+    A photograph of a menu is of no dish, and accepting the field in silence
+    produces data that later groups badly.
+    """
+    if kind not in PHOTO_KINDS:
+        raise InvalidPhotoPublicationError(f"kind must be one of {', '.join(PHOTO_KINDS)}")
     if visibility not in VISIBILITIES:
         raise InvalidPhotoPublicationError("visibility must be public or private")
     dish = (dish_name or "").strip()
-    if not dish:
+    if kind == DISH and not dish:
         raise InvalidPhotoPublicationError("a photograph of a dish must name the dish")
-    return dish
+    if kind != DISH and dish:
+        raise InvalidPhotoPublicationError(f"a photograph of a {kind} is of no dish")
+    return dish or None
+
+
+def _check_group(
+    connection: Connection,
+    upload_group: UUID,
+    *,
+    author_id: UUID,
+    restaurant_id: UUID,
+    kind: str,
+    visibility: str,
+    dish: str | None,
+) -> None:
+    """A group is one act, so everything in it has to agree.
+
+    Checked inside the transaction that writes the row, so two simultaneous
+    requests of the same act cannot leave it inconsistent. Without this the
+    activity item would have no single author or restaurant to show.
+    """
+    rows = (
+        connection.execute(
+            select(
+                photos.c.author_id,
+                photos.c.restaurant_id,
+                photos.c.kind,
+                photos.c.visibility,
+                photos.c.dish_name,
+            ).where(photos.c.upload_group == upload_group)
+        )
+        .mappings()
+        .all()
+    )
+    if not rows:
+        return
+    if len(rows) >= MAXIMUM_PHOTOS_PER_GROUP:
+        raise InvalidPhotoPublicationError(
+            f"a group holds at most {MAXIMUM_PHOTOS_PER_GROUP} photographs"
+        )
+    first = rows[0]
+    if (
+        first["author_id"] != author_id
+        or first["restaurant_id"] != restaurant_id
+        or first["kind"] != kind
+        or first["visibility"] != visibility
+        or first["dish_name"] != dish
+    ):
+        raise InvalidPhotoPublicationError(
+            "every photograph of a group shares its author, restaurant, kind, "
+            "visibility and dish"
+        )
 
 
 def store_photo(
@@ -300,6 +375,7 @@ def store_photo(
     photo_stream: BinaryIO,
     declared_content_type: str | None,
     storage: MediaStorage,
+    upload_group: UUID | None = None,
     persist_with: Callable[[Connection, UUID, datetime], None] | None = None,
 ) -> Photo:
     """Validate, store and persist one photograph.
@@ -333,6 +409,16 @@ def store_photo(
     def persist(connection: Connection) -> None:
         if not connection.scalar(select(restaurants.c.id).where(restaurants.c.id == restaurant_id)):
             raise RestaurantNotFoundError
+        if upload_group is not None:
+            _check_group(
+                connection,
+                upload_group,
+                author_id=author_id,
+                restaurant_id=restaurant_id,
+                kind=kind,
+                visibility=visibility,
+                dish=dish,
+            )
         connection.execute(
             insert(photos).values(
                 id=photo_id,
@@ -346,6 +432,7 @@ def store_photo(
                 dish_name=dish,
                 search_dish_name=normalize_restaurant_search_text(dish) if dish else None,
                 caption=normalized_caption,
+                upload_group=upload_group,
                 created_at=timestamp,
             )
         )
@@ -354,7 +441,7 @@ def store_photo(
 
     try:
         run_transaction_with_retry(engine, persist)
-    except RestaurantNotFoundError:
+    except (RestaurantNotFoundError, InvalidPhotoPublicationError):
         compensate_storage(storage, storage_key)
         raise
     except SQLAlchemyError as error:
