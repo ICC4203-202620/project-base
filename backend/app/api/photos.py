@@ -44,6 +44,18 @@ def _raise_http_error(error: Exception) -> NoReturn:
                 }
             ],
         )
+    if isinstance(error, photo_service.UnknownPhotoKindError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {
+                    "type": "value_error",
+                    "loc": ["query", "kind"],
+                    "msg": error.reason,
+                    "input": None,
+                }
+            ],
+        )
     if isinstance(error, photo_service.PhotoMediaError):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -60,14 +72,23 @@ def _raise_http_error(error: Exception) -> NoReturn:
     response_model=PhotoResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_trusted_origin)],
-    summary="Publish the photograph of a dish",
+    summary="Publish the photograph of a dish, a menu or the premises",
     responses={
+        201: {
+            "description": (
+                "One photograph per request, so the interface can show the progress of each "
+                "file and retry only the one that failed. Repeating `upload_group` across the "
+                "requests of one act makes those photographs a single entry in the feed, up to "
+                f"{photo_service.MAXIMUM_PHOTOS_PER_GROUP} of them."
+            )
+        },
         404: {"description": "No restaurant has this identifier"},
         413: {"description": "The file exceeds MEDIA_MAX_UPLOAD_BYTES"},
         422: {
             "description": (
                 "Not a valid JPEG, PNG or WebP, a declared MIME that does not match the "
-                "content, a kind other than dish, an unknown visibility, or a missing dish name"
+                "content, an unknown kind or visibility, a dish name missing on a photograph "
+                "of a dish or present on any other, or a group whose photographs disagree"
             )
         },
         503: {"description": "The media provider could not store the object"},
@@ -83,6 +104,7 @@ def publish(
     kind: Annotated[str, Form()] = photo_service.DISH,
     dish_name: Annotated[str | None, Form(max_length=120)] = None,
     caption: Annotated[str | None, Form(max_length=500)] = None,
+    upload_group: Annotated[UUID | None, Form()] = None,
 ) -> photo_service.GalleryPhoto:
     try:
         stored = photo_service.store_photo(
@@ -95,6 +117,7 @@ def publish(
             photo_stream=photo.file,
             declared_content_type=photo.content_type,
             storage=storage,
+            upload_group=upload_group,
         )
     except (
         RestaurantNotFoundError,

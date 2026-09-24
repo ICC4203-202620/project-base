@@ -184,7 +184,9 @@ restaurante, y la pantalla la recorre por separado con
 en orden cronológico descendente. Incluye las fotografías públicas y, además,
 las privadas del propio observador. Cada item trae su autor, el tipo de
 fotografía, la fecha, `content_url` y el identificador de la reseña asociada
-cuando la tiene.
+cuando la tiene. El parámetro `kind` la acota a platos, menús o instalaciones,
+que son tres recorridos distintos sobre la misma galería; un tipo desconocido
+responde `422`.
 
 La visibilidad de una fotografía es suya y no se deduce de la reseña que la
 acompañe: `GET /api/v1/photos/{id}/content` autoriza contra ella, de modo que
@@ -278,7 +280,7 @@ restaurantes. Esa simplificación permite practicar el CRUD, pero **no es un
 modelo de autorización apropiado para producción**: roles, ownership y
 moderación quedan para una evolución posterior.
 
-### Publicar la fotografía de un plato
+### Publicar fotografías
 
 | Método y path | Resultado |
 | --- | --- |
@@ -286,14 +288,34 @@ moderación quedan para una evolución posterior.
 | `GET /api/v1/photos/{id}` | Metadatos de una fotografía, o `404`. |
 | `GET /api/v1/photos/{id}/content` | Los bytes de la fotografía. |
 
-Subir la foto de un plato es una acción completa en sí misma, y reseñarla es
-otra. Recibe `multipart/form-data` con `restaurant_id`, `kind`, `dish_name`,
-`visibility`, el archivo y un `caption` opcional que la interfaz puede usar
-como texto alternativo de la imagen.
+Subir una fotografía es una acción completa en sí misma, y reseñarla es otra.
+Recibe `multipart/form-data` con `restaurant_id`, `kind`, `dish_name`,
+`visibility`, el archivo, un `caption` opcional que la interfaz puede usar
+como texto alternativo de la imagen, y un `upload_group` opcional.
 
-Por ahora `kind` sólo admite `dish`, y por eso `dish_name` es obligatorio; los
-tipos `menu` y `venue` los habilita la épica 9. La visibilidad es obligatoria
-y sin valor por omisión, con el mismo criterio del check-in.
+`kind` admite `dish`, `menu` y `venue`. **El nombre del plato es obligatorio
+para una fotografía de plato y se rechaza para las otras dos**: una fotografía
+del menú no es de ningún plato, y aceptar el campo en silencio produce datos
+que después agrupan mal. La visibilidad es obligatoria y sin valor por
+omisión, con el mismo criterio del check-in.
+
+#### Publicar varias en un acto
+
+**Cada fotografía viaja en su propia solicitud.** Así la interfaz muestra el
+progreso de cada archivo y reintenta sólo el que falló; un multipart con
+varias obligaría a rechazar el conjunto completo cuando una sola falla, que
+sobre un teléfono significa volver a subir las que ya habían llegado.
+
+Para que ese conjunto siga siendo un solo acto, el cliente genera un UUID y lo
+repite como `upload_group` en todas las solicitudes de esa publicación. Las
+fotografías que lo comparten forman **una sola entrada en el feed y en el
+perfil**, fechada por la primera de ellas para que no se mueva mientras el
+resto llega.
+
+Todas las fotografías de un grupo comparten autor, restaurante, tipo,
+visibilidad y plato; una solicitud que reutilice un grupo ajeno o incompatible
+responde `422`, igual que la que pase del máximo de diez por grupo. El grupo
+no es un recurso consultable: es una relación entre fotografías.
 
 **El plato vive en la fotografía**, no en la reseña. Se guarda tal como se
 escribió y además en una forma normalizada que ignora acentos y mayúsculas,

@@ -68,6 +68,8 @@ def activity_ids(page):
 # was published. The backdated visit leads precisely because it was recorded
 # last, which is the difference the feed orders by.
 EXPECTED_FEED = [
+    PHOTO_FIXTURES[6].id,
+    PHOTO_FIXTURES[3].id,
     PHOTO_FIXTURES[1].id,
     PHOTO_FIXTURES[0].id,
     VISIT_FIXTURES[3].id,

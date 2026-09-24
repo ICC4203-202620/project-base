@@ -35,6 +35,18 @@ cuisine_styles_router = APIRouter(
 def _raise_http_error(error: Exception) -> NoReturn:
     if isinstance(error, restaurant_service.RestaurantNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    if isinstance(error, photo_service.UnknownPhotoKindError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {
+                    "type": "value_error",
+                    "loc": ["query", "kind"],
+                    "msg": error.reason,
+                    "input": None,
+                }
+            ],
+        )
     if isinstance(error, photo_service.PhotoStoreError):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -311,7 +323,9 @@ def show(
     responses={
         200: {
             "description": (
-                "Public photographs, plus the viewer's own private ones. Paged by opaque cursor."
+                "Public photographs, plus the viewer's own private ones. Paged by opaque "
+                "cursor. `kind` narrows it to dishes, menus or premises, which are three "
+                "different walks over the same gallery."
             )
         },
         404: {"description": "No restaurant has this identifier"},
@@ -323,6 +337,7 @@ def gallery(
     session: Annotated[AuthenticatedSession, Depends(get_current_session)],
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     cursor: str | None = None,
+    kind: str | None = None,
 ) -> photo_service.GalleryPage:
     try:
         # Resolved first so an unknown restaurant answers 404 instead of an
@@ -333,11 +348,13 @@ def gallery(
             viewer_id=session.user_id,
             limit=limit,
             cursor=cursor,
+            kind=kind,
         )
     except (
         restaurant_service.RestaurantNotFoundError,
         restaurant_service.RestaurantStoreError,
         photo_service.PhotoStoreError,
+        photo_service.UnknownPhotoKindError,
         InvalidCursorError,
     ) as error:
         _raise_http_error(error)

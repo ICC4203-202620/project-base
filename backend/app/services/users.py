@@ -15,7 +15,7 @@ from functools import reduce
 from operator import add
 from uuid import UUID
 
-from sqlalchemy import and_, desc, func, or_, select, union_all
+from sqlalchemy import desc, func, or_, select, union_all
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.countries import country_name
@@ -80,7 +80,7 @@ def _profile_statement(handle: str, viewer_id: UUID):
     activity_count = reduce(
         add,
         (
-            select(func.count())
+            select(source.count())
             .select_from(source.identifier.table)
             .where(
                 source.author_id == users.c.id,
@@ -180,12 +180,7 @@ def _profile_keys(source: ActivitySource, author_id: UUID, viewer_id: UUID, curs
     keys = source.keys(viewer_id).where(source.author_id == author_id)
     if cursor:
         occurred_at, activity_id = decode_time_cursor(cursor)
-        keys = keys.where(
-            or_(
-                source.occurred_at < occurred_at,
-                and_(source.occurred_at == occurred_at, source.identifier < activity_id),
-            )
-        )
+        keys = source.after(keys, by="occurred", value=occurred_at, identifier=activity_id)
     return keys
 
 

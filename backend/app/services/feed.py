@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import and_, desc, or_, select, union_all
+from sqlalchemy import desc, or_, select, union_all
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.db.schema import restaurant_follows, reviews, user_follows
@@ -45,12 +45,7 @@ def _source_keys(source: ActivitySource, viewer_id: UUID, cursor: str | None):
     )
     if cursor:
         published_at, activity_id = decode_time_cursor(cursor)
-        keys = keys.where(
-            or_(
-                source.published_at < published_at,
-                and_(source.published_at == published_at, source.identifier < activity_id),
-            )
-        )
+        keys = source.after(keys, by="published", value=published_at, identifier=activity_id)
     return keys
 
 

@@ -162,6 +162,9 @@ photos = Table(
     Column("search_dish_name", String(240), nullable=True),
     # Optional text the interface can use as the alternative text of the image.
     Column("caption", String(500), nullable=True),
+    # Identifies the act of publishing when it carried more than one
+    # photograph. Null for one published on its own. The client generates it.
+    Column("upload_group", Uuid(as_uuid=True), nullable=True),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -178,6 +181,7 @@ Index(
     photos.c.restaurant_id,
     photos.c.search_dish_name,
 )
+Index("ix_photos_upload_group", photos.c.upload_group)
 
 visits = Table(
     "visits",

@@ -230,10 +230,15 @@ def _seed_feed_fixtures(
                 content_type=fixture.content_type,
                 size_bytes=asset_path.stat().st_size,
                 visibility=fixture.visibility,
-                kind=DISH,
+                kind=fixture.kind,
                 dish_name=fixture.dish_name,
-                search_dish_name=normalize_restaurant_search_text(fixture.dish_name),
+                search_dish_name=(
+                    normalize_restaurant_search_text(fixture.dish_name)
+                    if fixture.dish_name
+                    else None
+                ),
                 caption=fixture.caption,
+                upload_group=fixture.upload_group,
                 created_at=fixture.created_at,
             )
         )

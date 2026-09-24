@@ -141,7 +141,7 @@ def test_handle_is_resolved_however_it_is_written(seeded_database):
         profile = user_service.get_profile(written, viewer_id=OWNER.id)
         page = user_service.get_activity(written, viewer_id=OWNER.id, limit=20)
         assert profile.handle == AUTHOR.handle, written
-        assert len(page["items"]) == 5, written
+        assert len(page["items"]) == 6, written
 
 
 def test_unknown_handle_is_not_an_empty_profile(seeded_database):
@@ -199,6 +199,8 @@ def test_activity_pages_are_stable_and_reject_a_foreign_cursor(seeded_database):
     # Ordered by when each activity happened, which is what a profile is. The
     # backdated visit comes last here and first in the feed.
     expected = [
+        # The three menu photographs are one act, dated by the earliest.
+        PHOTO_FIXTURES[3].id,
         PHOTO_FIXTURES[0].id,
         REVIEW_FIXTURES[0].id,
         VISIT_FIXTURES[0].id,
@@ -282,5 +284,6 @@ def test_profile_response_shape_is_what_the_interface_needs(seeded_database, mon
     payload = response.json()
     assert payload["handle"] == AUTHOR.handle
     assert payload["nationality"] == {"code": "AR", "name": "Argentina"}
-    assert payload["counters"] == {"activity": 5, "followers": 1, "following": 0}
+    # Six acts, not eight rows: the three menu photographs are one publication.
+    assert payload["counters"] == {"activity": 6, "followers": 1, "following": 0}
     assert payload["viewer"] == {"is_self": False, "following": True, "followed_by": False}

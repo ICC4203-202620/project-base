@@ -41,17 +41,23 @@ class RestaurantFixture:
 
 @dataclass(frozen=True)
 class PhotoFixture:
-    """A photograph published on its own, with no review on it."""
+    """A photograph published with no review on it.
+
+    `upload_group` relates the ones published in a single act, which the feed
+    shows as one entry.
+    """
 
     id: UUID
     author_id: UUID
     restaurant_id: UUID
     asset_name: str
     content_type: str
-    dish_name: str
+    kind: str
+    dish_name: str | None
     caption: str | None
     visibility: str
     created_at: datetime
+    upload_group: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -224,6 +230,7 @@ PHOTO_FIXTURES = (
         UUID("20000000-0000-4000-8000-000000000001"),
         "sopaipillas.webp",
         "image/webp",
+        "dish",
         "Sopaipillas",
         "Recién salidas, con pebre al lado.",
         "public",
@@ -235,6 +242,7 @@ PHOTO_FIXTURES = (
         UUID("20000000-0000-4000-8000-000000000001"),
         "sopaipillas.webp",
         "image/webp",
+        "dish",
         "sopaipillas",
         None,
         "public",
@@ -246,10 +254,64 @@ PHOTO_FIXTURES = (
         UUID("20000000-0000-4000-8000-000000000002"),
         "ceviche.webp",
         "image/webp",
+        "dish",
         "Ceviche",
         None,
         "private",
         datetime(2026, 8, 23, 20, tzinfo=UTC),
+    ),
+    # Tres fotografías del menú publicadas en un mismo acto: el feed las
+    # muestra como una sola entrada.
+    PhotoFixture(
+        UUID("60000000-0000-4000-8000-000000000004"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "pastel-de-choclo.webp",
+        "image/webp",
+        "menu",
+        None,
+        "Carta de fondos.",
+        "public",
+        datetime(2026, 8, 24, 11, tzinfo=UTC),
+        UUID("70000000-0000-4000-8000-000000000001"),
+    ),
+    PhotoFixture(
+        UUID("60000000-0000-4000-8000-000000000005"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "ceviche.webp",
+        "image/webp",
+        "menu",
+        None,
+        "Carta de entradas.",
+        "public",
+        datetime(2026, 8, 24, 11, 1, tzinfo=UTC),
+        UUID("70000000-0000-4000-8000-000000000001"),
+    ),
+    PhotoFixture(
+        UUID("60000000-0000-4000-8000-000000000006"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "sopaipillas.webp",
+        "image/webp",
+        "menu",
+        None,
+        None,
+        "public",
+        datetime(2026, 8, 24, 11, 2, tzinfo=UTC),
+        UUID("70000000-0000-4000-8000-000000000001"),
+    ),
+    PhotoFixture(
+        UUID("60000000-0000-4000-8000-000000000007"),
+        DEMO_USERS[2].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        "sopaipillas.webp",
+        "image/webp",
+        "venue",
+        None,
+        "La terraza al atardecer.",
+        "public",
+        datetime(2026, 8, 25, 19, tzinfo=UTC),
     ),
 )
 
