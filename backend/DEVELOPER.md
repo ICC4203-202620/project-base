@@ -649,10 +649,13 @@ identificador que viaja es el del grupo. Con una solicitud por archivo el
 backend no puede saber que el acto está completo, y esperar a que lo esté
 introduciría trabajo diferido que este backend no tiene.
 
-Una consecuencia que conviene tener presente: publicar la fotografía de un
-plato y después reseñarla produce dos avisos, porque son dos actividades. Es
-el costo de que publicar y opinar sean dos acciones distintas, que es
-justamente lo que el enunciado describe.
+**La reseña no avisa.** Es la única clase de actividad que no lo hace, y la
+razón es la misma que ordena el feed: la fotografía de la que habla ya avisó
+cuando se publicó, y el feed muestra a ambas como una sola entrada, porque una
+fotografía reseñada deja de ser actividad propia. Un segundo aviso
+contradiría lo que el seguidor va a ver al abrirlo. La regla, entonces, no es
+«una actividad, un aviso» sino **una entrada del feed, un aviso**, que es la
+misma deduplicación que el enunciado pide.
 
 ## Configuración
 

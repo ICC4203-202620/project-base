@@ -189,21 +189,13 @@ def test_an_activity_nobody_follows_is_not_an_error(seeded_database):
 # --- Where the emitter is plugged in ------------------------------------------
 
 
-def test_every_class_of_activity_announces_itself(seeded_database, sent):
+def test_every_publication_announces_itself(seeded_database, sent):
     del seeded_database
 
     check_in()
     publish()
-    photo = publish(kind="dish", dish_name="Merluza austral")
-    review_service.create_review(
-        author_id=AUTHOR.id,
-        photo_id=photo.id,
-        rating=4,
-        text="Muy fresco",
-        visibility="public",
-    )
     # This author already evaluated the followed restaurant in the seed, so
-    # this one goes to another of the same followed author.
+    # this one goes to another restaurant of the same followed author.
     evaluation_service.create_evaluation(
         author_id=AUTHOR.id,
         restaurant_id=OTHER_RESTAURANT,
@@ -212,14 +204,26 @@ def test_every_class_of_activity_announces_itself(seeded_database, sent):
         visibility="public",
     )
 
-    assert [notification.type for notification in sent] == [
-        "visit",
-        "photo",
-        "photo",
-        "review",
-        "evaluation",
-    ]
+    assert [notification.type for notification in sent] == ["visit", "photo", "evaluation"]
     assert all(FOLLOWER.id in notification.recipients for notification in sent)
+
+
+def test_reviewing_a_photograph_announces_nothing(seeded_database, sent):
+    del seeded_database
+    photo = publish(kind="dish", dish_name="Merluza austral")
+
+    review_service.create_review(
+        author_id=AUTHOR.id,
+        photo_id=photo.id,
+        rating=4,
+        text="Muy fresco",
+        visibility="public",
+    )
+
+    # One publication, one warning: the photograph announced it, and the feed
+    # shows the photograph and its review as a single entry.
+    assert [notification.type for notification in sent] == ["photo"]
+    assert sent[0].id == photo.id
 
 
 def test_a_group_of_photographs_announces_itself_once(seeded_database, sent):

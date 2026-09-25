@@ -192,6 +192,8 @@ La entrega 2 usó una regla deliberadamente simple: una reseña nueva notificaba
 
 A partir de esta entrega, una actividad pública notifica a quienes siguen a su autor y a quienes siguen al restaurante en que ocurrió, excluyendo al autor. Una actividad privada no notifica a nadie. Cuando una persona sigue tanto al autor como al restaurante, recibe una sola notificación por cada instalación suscrita.
 
+La regla es **una entrada del feed, un aviso**, y no «una fila, un aviso». Dos consecuencias: varias fotografías publicadas en un mismo acto producen un solo aviso, y reseñar una fotografía no produce ninguno, porque la fotografía ya avisó cuando se publicó y el feed muestra a ambas como una sola entrada.
+
 El código base provee la consulta que resuelve esos destinatarios, y un único punto donde enganchar el emisor. El grupo adapta el suyo de la entrega 2 para usarlos, en lugar de recorrer todas las suscripciones activas.
 
 El enganche es uno solo, en `backend/app/services/notifications.py`. En la entrega 2 la llamada vivía dentro de la creación de una reseña, que era razonable cuando la reseña era la única clase de actividad; ahora hay cinco —visita, fotografía, reseña, evaluación y la publicación de varias fotografías como un acto— y todas invocan el mismo punto. El grupo instala su emisor con `set_notifier` y recibe, por cada actividad publicada, su tipo, su identificador y **los destinatarios ya resueltos**: identificadores de usuario, sin repetición y sin el autor. Mapearlos a suscripciones es trabajo del emisor, porque la tabla de suscripciones es del grupo y el código base no la conoce.
