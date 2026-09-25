@@ -77,14 +77,36 @@ class ActivityPhotos(BaseModel):
     photos: list[ActivityPhotograph]
 
 
+class CriterionRating(BaseModel):
+    criterion: str
+    rating: int
+
+
+class EvaluationPhoto(BaseModel):
+    id: UUID
+    content_url: str
+
+
+class ActivityEvaluation(BaseModel):
+    id: UUID
+    comment: str
+    visibility: Literal["public", "private"]
+    author: UserSummary
+    restaurant: ActivityRestaurant
+    ratings: list[CriterionRating]
+    photos: list[EvaluationPhoto]
+    created_at: datetime
+
+
 class Activity(BaseModel):
-    type: Literal["review", "visit", "photo"]
+    type: Literal["review", "visit", "photo", "evaluation"]
     occurred_at: datetime
     published_at: datetime
     # Exactly one of these carries the activity, named after its type.
     review: ActivityReview | None = None
     visit: ActivityVisit | None = None
     photo: ActivityPhotos | None = None
+    evaluation: ActivityEvaluation | None = None
 
 
 class ActivityPage(BaseModel):

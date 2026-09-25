@@ -9,6 +9,7 @@ from app.core.security import hash_password
 from app.db.fixtures import (
     CUISINE_STYLES,
     DEMO_USERS,
+    EVALUATION_FIXTURES,
     PHOTO_FIXTURES,
     RESTAURANT_FOLLOWS,
     RESTAURANTS,
@@ -18,6 +19,9 @@ from app.db.fixtures import (
 )
 from app.db.schema import (
     cuisine_styles,
+    evaluation_photos,
+    evaluation_ratings,
+    evaluations,
     photos,
     restaurant_cuisine_styles,
     restaurant_follows,
@@ -242,6 +246,36 @@ def _seed_feed_fixtures(
                 created_at=fixture.created_at,
             )
         )
+        changed = True
+    existing_evaluation_ids = set(connection.scalars(select(evaluations.c.id)))
+    for fixture in EVALUATION_FIXTURES:
+        if fixture.id in existing_evaluation_ids:
+            continue
+        connection.execute(
+            insert(evaluations).values(
+                id=fixture.id,
+                author_id=user_ids[fixture.author_id],
+                restaurant_id=restaurant_ids[fixture.restaurant_id],
+                comment=fixture.comment,
+                visibility=fixture.visibility,
+                created_at=fixture.created_at,
+            )
+        )
+        connection.execute(
+            insert(evaluation_ratings),
+            [
+                {"evaluation_id": fixture.id, "criterion": criterion, "rating": rating}
+                for criterion, rating in fixture.ratings
+            ],
+        )
+        if fixture.photo_ids:
+            connection.execute(
+                insert(evaluation_photos),
+                [
+                    {"evaluation_id": fixture.id, "photo_id": photo_id}
+                    for photo_id in fixture.photo_ids
+                ],
+            )
         changed = True
     existing_visit_ids = set(connection.scalars(select(visits.c.id)))
     for fixture in VISIT_FIXTURES:

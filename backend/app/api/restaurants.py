@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.api.dependencies import get_current_session, require_trusted_origin
+from app.schemas.evaluations import EvaluationPage
 from app.schemas.restaurants import (
     CuisineStyleResponse,
     RestaurantCreate,
@@ -15,6 +16,7 @@ from app.schemas.restaurants import (
     RestaurantResponse,
     RestaurantUpdate,
 )
+from app.services import evaluations as evaluation_service
 from app.services import photos as photo_service
 from app.services import restaurants as restaurant_service
 from app.services.auth import AuthenticatedSession
@@ -35,6 +37,11 @@ cuisine_styles_router = APIRouter(
 def _raise_http_error(error: Exception) -> NoReturn:
     if isinstance(error, restaurant_service.RestaurantNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Restaurant not found")
+    if isinstance(error, evaluation_service.EvaluationStoreError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Evaluation service unavailable",
+        )
     if isinstance(error, photo_service.UnknownPhotoKindError):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -312,6 +319,42 @@ def show(
     except (
         restaurant_service.RestaurantNotFoundError,
         restaurant_service.RestaurantStoreError,
+    ) as error:
+        _raise_http_error(error)
+
+
+@router.get(
+    "/{restaurant_id}/evaluations",
+    response_model=EvaluationPage,
+    summary="Evaluations of a restaurant, newest first",
+    responses={
+        200: {
+            "description": (
+                "Exactly the evaluations the summary averages, which are the public ones, so "
+                "the list, the counter and the total describe the same set."
+            )
+        },
+        404: {"description": "No restaurant has this identifier"},
+        422: {"description": "The cursor was not produced by this API"},
+    },
+)
+def restaurant_evaluations(
+    restaurant_id: UUID,
+    session: Annotated[AuthenticatedSession, Depends(get_current_session)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    cursor: str | None = None,
+) -> dict:
+    del session
+    try:
+        restaurant_service.get_restaurant(restaurant_id)
+        return evaluation_service.list_restaurant_evaluations(
+            restaurant_id, limit=limit, cursor=cursor
+        )
+    except (
+        restaurant_service.RestaurantNotFoundError,
+        restaurant_service.RestaurantStoreError,
+        evaluation_service.EvaluationStoreError,
+        InvalidCursorError,
     ) as error:
         _raise_http_error(error)
 

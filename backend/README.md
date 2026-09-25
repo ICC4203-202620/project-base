@@ -433,6 +433,50 @@ restaurantes son estables: ejecutarlo nuevamente no duplica filas ni reemplaza
 cambios hechos por un estudiante. La configuración rechaza explícitamente el
 seed en `ENVIRONMENT=production`.
 
+### Evaluar un restaurante
+
+| Método y path | Resultado |
+| --- | --- |
+| `GET /api/v1/rating-criteria` | Criterios de evaluación que define el backend. |
+| `POST /api/v1/evaluations` | Evalúa un restaurante; responde `201` y publica `Location`. |
+| `GET /api/v1/evaluations/{id}` | Consulta una evaluación, o responde `404`. |
+| `GET /api/v1/restaurants/{id}/evaluations` | Evaluaciones del restaurante, paginadas por cursor. |
+
+La evaluación es del restaurante como un todo, distinta de la reseña de un
+plato. Recibe `restaurant_id`, `ratings`, `comment`, `visibility` y una lista
+opcional de `photo_ids`.
+
+**Todos los criterios del catálogo son obligatorios, exactamente una vez cada
+uno.** Un promedio calculado sobre un criterio que unos respondieron y otros
+omitieron mezcla poblaciones distintas y no se puede comparar entre
+restaurantes. Es además lo que hace que el promedio general coincida con el
+promedio de los promedios por criterio. La escala es de 1 a 5, la misma de la
+reseña de un plato.
+
+El comentario general es obligatorio: para quien lee la ficha es lo que
+explica los números.
+
+**Cada persona evalúa un restaurante una sola vez.** Un segundo intento
+responde `409` con la evaluación que ya existe. Las fotografías asociadas son
+opcionales y tienen que ser del mismo restaurante, del mismo autor y de tipo
+menú o instalaciones; una evaluación nunca es más visible que la menos visible
+de ellas.
+
+#### El resumen de la ficha
+
+`GET /api/v1/restaurants/{id}` devuelve en `ratings` el promedio por criterio,
+el promedio general y el total. **Agrega solamente evaluaciones públicas, para
+todos los observadores, incluido el autor de una privada.** Un promedio que
+cambiara según quién mira no sería comparable entre restaurantes, y su autor
+vería en la ficha un número que nadie más ve; su evaluación privada aparece en
+su perfil, que es donde el enunciado la ubica. Por lo mismo, el contador de
+evaluaciones cuenta lo mismo que el resumen, y la lista de
+`/restaurants/{id}/evaluations` contiene exactamente ese conjunto: los tres
+números describen lo mismo en la misma pantalla.
+
+Los promedios se publican redondeados a un decimal: más precisión sugeriría
+una exactitud que veinte evaluaciones no tienen.
+
 ### Check-in en un restaurante
 
 | Método y path | Resultado |

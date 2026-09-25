@@ -184,6 +184,55 @@ Index(
 )
 Index("ix_photos_upload_group", photos.c.upload_group)
 
+evaluations = Table(
+    "evaluations",
+    metadata,
+    Column("id", Uuid(as_uuid=True), primary_key=True),
+    # Aurora DSQL does not support foreign keys. The service checks the
+    # restaurant and the photographs in the transaction that writes the rows.
+    Column("author_id", Uuid(as_uuid=True), nullable=False),
+    Column("restaurant_id", Uuid(as_uuid=True), nullable=False),
+    Column("comment", String(2000), nullable=False),
+    Column("visibility", String(16), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+# One evaluation per person and restaurant. Without it, one person could move
+# the average of a restaurant as many times as they liked.
+Index(
+    "uq_evaluations_author_restaurant",
+    evaluations.c.author_id,
+    evaluations.c.restaurant_id,
+    unique=True,
+)
+Index(
+    "ix_evaluations_restaurant_visibility_created",
+    evaluations.c.restaurant_id,
+    evaluations.c.visibility,
+    evaluations.c.created_at,
+)
+Index("ix_evaluations_author_created_id", evaluations.c.author_id, evaluations.c.created_at)
+
+evaluation_ratings = Table(
+    "evaluation_ratings",
+    metadata,
+    Column("evaluation_id", Uuid(as_uuid=True), primary_key=True),
+    # A row per criterion rather than a column per criterion: adding one is an
+    # entry in the catalogue instead of a schema migration.
+    Column("criterion", String(64), primary_key=True),
+    Column("rating", SmallInteger(), nullable=False),
+    CheckConstraint("rating BETWEEN 1 AND 5", name="ck_evaluation_ratings_range"),
+)
+
+evaluation_photos = Table(
+    "evaluation_photos",
+    metadata,
+    Column("evaluation_id", Uuid(as_uuid=True), primary_key=True),
+    Column("photo_id", Uuid(as_uuid=True), primary_key=True),
+)
+
+Index("ix_evaluation_photos_photo_id", evaluation_photos.c.photo_id)
+
 visits = Table(
     "visits",
     metadata,

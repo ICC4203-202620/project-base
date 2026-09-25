@@ -521,7 +521,10 @@ def test_restaurant_page_and_gallery_apply_visibility_with_postgresql():
     seen_gallery = other_client.get(f"/api/v1/restaurants/{restaurant_id}/photos").json()
 
     assert own_page["name"] and own_page["cuisine_styles"]
-    assert own_page["ratings"] == {"criteria": [], "average": None, "total": 0}
+    assert own_page["ratings"]["total"] == own_page["counters"]["evaluations"]
+    assert len(own_page["ratings"]["criteria"]) == 4
+    # The same averages for both observers: the summary is public only.
+    assert own_page["ratings"] == seen_page["ratings"]
     assert own_page["viewer"] == {"following": True}
     assert seen_page["viewer"] == {"following": False}
 
