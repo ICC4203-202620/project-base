@@ -236,6 +236,7 @@ def test_lambda_handler_parses_multipart_photo_upload(monkeypatch):
             created_at=timestamp,
             content_url=photo.content_url,
             review_id=None,
+            comments_count=0,
         ),
     )
     app.dependency_overrides[get_current_session] = lambda: session

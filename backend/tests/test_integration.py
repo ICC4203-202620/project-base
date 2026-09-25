@@ -13,8 +13,10 @@ from app.core.config import settings
 from app.core.security import create_access_token
 from app.db import seed as seed_module
 from app.db.fixtures import (
+    COMMENT_FIXTURES,
     CUISINE_STYLES,
     DEMO_USERS,
+    PHOTO_FIXTURES,
     RESTAURANTS,
     REVIEW_FIXTURES,
     VISIT_FIXTURES,
@@ -56,6 +58,7 @@ def test_migrations_create_application_tables():
     assert inspector.has_table("reviews")
     assert inspector.has_table("user_follows")
     assert inspector.has_table("restaurant_follows")
+    assert inspector.has_table("comments")
     assert inspector.get_pk_constraint("user_follows")["constrained_columns"] == [
         "follower_id",
         "followed_id",
@@ -865,6 +868,45 @@ def test_the_restaurant_page_names_known_visitors_with_postgresql():
     # of somebody they follow is not either.
     assert str(DEMO_USERS[0].id) not in {visitor["id"] for visitor in block["items"]}
     assert DEMO_USERS[4].handle not in handles
+
+
+def test_the_conversation_of_a_photograph_works_with_postgresql():
+    client = authenticated_client()
+    photo = PHOTO_FIXTURES[0].id
+    thread = COMMENT_FIXTURES[0].id
+
+    listed = client.get(f"/api/v1/photos/{photo}/comments")
+    replies = client.get(f"/api/v1/comments/{thread}/replies")
+    metadata_of_photo = client.get(f"/api/v1/photos/{photo}")
+
+    assert listed.status_code == replies.status_code == 200
+    items = listed.json()["items"]
+    # Windowing the replies of a page by parent is what SQLite could answer
+    # differently from PostgreSQL.
+    oldest = items[-1]
+    assert oldest["comment"]["id"] == str(thread)
+    assert oldest["reply_count"] == 4
+    assert len(oldest["replies"]) == 3
+    assert all(reply["parent_id"] == str(thread) for reply in oldest["replies"])
+    written = [reply["created_at"] for reply in oldest["replies"]]
+    assert written == sorted(written)
+    assert [item["comment"]["created_at"] for item in items] == sorted(
+        (item["comment"]["created_at"] for item in items), reverse=True
+    )
+    assert [reply["id"] for reply in replies.json()["items"]][:3] == [
+        reply["id"] for reply in oldest["replies"]
+    ]
+    assert metadata_of_photo.json()["comments_count"] == len(COMMENT_FIXTURES)
+
+    # A comment is not activity: it reaches neither the feed nor a profile.
+    created = client.post(
+        f"/api/v1/photos/{photo}/comments",
+        headers={"Origin": "http://testserver"},
+        json={"text": "Anotado para la próxima."},
+    )
+    assert created.status_code == 201
+    feed = client.get("/api/v1/feed?limit=50").json()
+    assert "comment" not in {item["type"] for item in feed["items"]}
 
 
 def test_seeded_feed_and_review_detail_work_with_postgresql():

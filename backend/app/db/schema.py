@@ -301,3 +301,26 @@ Index(
     reviews.c.created_at,
     reviews.c.id,
 )
+
+comments = Table(
+    "comments",
+    metadata,
+    Column("id", Uuid(as_uuid=True), primary_key=True),
+    # Aurora DSQL does not support foreign keys. The service checks that the
+    # photograph and the parent comment exist in the same transaction that
+    # persists the comment.
+    Column("photo_id", Uuid(as_uuid=True), nullable=False),
+    Column("author_id", Uuid(as_uuid=True), nullable=False),
+    # Null for a comment of the conversation, set for a reply. A reply to a
+    # reply carries the first-level comment here, never the reply: the thread
+    # has two levels and no more.
+    Column("parent_id", Uuid(as_uuid=True), nullable=True),
+    Column("text", String(1000), nullable=False),
+    # A comment has no visibility of its own: it lives on a public photograph
+    # and is therefore public. A column that could contradict what it talks
+    # about is the problem the order between review and photograph avoided.
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+Index("ix_comments_photo_created_id", comments.c.photo_id, comments.c.created_at, comments.c.id)
+Index("ix_comments_parent_created_id", comments.c.parent_id, comments.c.created_at, comments.c.id)

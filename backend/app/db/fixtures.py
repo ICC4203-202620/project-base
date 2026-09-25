@@ -61,6 +61,22 @@ class PhotoFixture:
 
 
 @dataclass(frozen=True)
+class CommentFixture:
+    """A comment of the conversation, or a reply inside one.
+
+    `parent_id` is null on a comment and holds a first-level comment on a
+    reply. It never holds another reply: the thread has two levels.
+    """
+
+    id: UUID
+    photo_id: UUID
+    author_id: UUID
+    parent_id: UUID | None
+    text: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class EvaluationFixture:
     id: UUID
     author_id: UUID
@@ -588,5 +604,69 @@ RESTAURANTS = (
         Decimal("-33.019400"),
         Decimal("-71.552300"),
         ("japonesa",),
+    ),
+)
+
+
+# La conversación vive sobre la fotografía pública de las sopaipillas: un
+# thread con cuatro respuestas —una más que las que viajan dentro de cada
+# comentario—, un comentario sin respuestas, y uno del propio autor de la
+# fotografía sobre la suya.
+COMMENT_FIXTURES = (
+    CommentFixture(
+        UUID("80000000-0000-4000-8000-000000000001"),
+        UUID("60000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[0].id,
+        None,
+        "¿Las sirven todo el día o sólo a la hora de once?",
+        datetime(2026, 8, 22, 18, 0, tzinfo=UTC),
+    ),
+    CommentFixture(
+        UUID("80000000-0000-4000-8000-000000000002"),
+        UUID("60000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[1].id,
+        UUID("80000000-0000-4000-8000-000000000001"),
+        "Cuando fui estaban desde las cinco.",
+        datetime(2026, 8, 22, 18, 30, tzinfo=UTC),
+    ),
+    CommentFixture(
+        UUID("80000000-0000-4000-8000-000000000003"),
+        UUID("60000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[2].id,
+        UUID("80000000-0000-4000-8000-000000000001"),
+        "Yo alcancé a las siete y quedaban.",
+        datetime(2026, 8, 22, 19, 0, tzinfo=UTC),
+    ),
+    CommentFixture(
+        UUID("80000000-0000-4000-8000-000000000004"),
+        UUID("60000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[3].id,
+        UUID("80000000-0000-4000-8000-000000000001"),
+        "Gracias, paso mañana entonces.",
+        datetime(2026, 8, 22, 19, 30, tzinfo=UTC),
+    ),
+    CommentFixture(
+        UUID("80000000-0000-4000-8000-000000000005"),
+        UUID("60000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[4].id,
+        UUID("80000000-0000-4000-8000-000000000001"),
+        "A esa hora ya no queda pebre, eso sí.",
+        datetime(2026, 8, 22, 20, 0, tzinfo=UTC),
+    ),
+    CommentFixture(
+        UUID("80000000-0000-4000-8000-000000000006"),
+        UUID("60000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[3].id,
+        None,
+        "El pebre se ve bien picado.",
+        datetime(2026, 8, 23, 9, 0, tzinfo=UTC),
+    ),
+    CommentFixture(
+        UUID("80000000-0000-4000-8000-000000000007"),
+        UUID("60000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[1].id,
+        None,
+        "Las saqué apenas llegaron a la mesa.",
+        datetime(2026, 8, 23, 10, 0, tzinfo=UTC),
     ),
 )

@@ -545,6 +545,57 @@ origen de actividad de fotografías lo expresa con una condición extra —`NOT
 EXISTS` sobre la reseña—, que el contador del perfil aplica también, para que
 nunca prometa filas que la lista no va a producir.
 
+### La conversación de una fotografía, que no es actividad
+
+`app/services/comments.py` es el único lugar donde alguien escribe sobre el
+contenido de otro. Todo lo demás que la aplicación publica —visitas,
+fotografías, reseñas, evaluaciones— es el registro propio de una experiencia
+en un restaurante.
+
+**Un comentario no es actividad**, y por eso no tiene `ActivitySource`, no
+entra en `ACTIVITY_SOURCES`, no aparece en el feed ni en el perfil de su autor
+y no llama a `notify`. La clasificación es la del enunciado general, que
+enumera cuatro clases de actividad y define la conversación aparte, y se
+sostiene por sí sola: el feed cuenta lo que las personas registran de su
+experiencia, y un thread de veinte mensajes inundaría el feed de todos los que
+siguen a cualquiera de los que hablan. Avisar a quien publicó la fotografía
+sería una clase de aviso distinta de la que define el enunciado —«quien te
+sigue publicó algo», «alguien publicó en un restaurante que sigues»— y hay
+que decidirla aparte, no deducirla.
+
+**El thread tiene dos niveles.** `parent_id` es nulo en un comentario y
+apunta a un comentario de primer nivel en una respuesta; nunca a otra
+respuesta. Al crear, el servicio resuelve el padre real: responder a una
+respuesta se acepta y queda colgado del comentario al que esa respuesta
+pertenece. Un anidamiento sin límite obliga a una consulta recursiva, cuyo
+soporte en Aurora DSQL no se da por sentado, y a una interfaz que sobre un
+teléfono se queda sin ancho al tercer nivel.
+
+El comentario tampoco tiene visibilidad propia: vive sobre una fotografía
+pública y es público. Una tercera columna de visibilidad crearía un objeto
+capaz de contradecir aquello de lo que habla, que es el problema que el orden
+entre reseña y fotografía ya había evitado.
+
+`_replies_of_page` resuelve las respuestas y los totales de una página
+completa en **una sola consulta**: una ventana numera las respuestas de cada
+padre y las cuenta a la vez, y el select exterior conserva las primeras
+`REPLY_PREVIEW` de cada uno. Una consulta por comentario es el N+1 que el
+resto de la API evita, y aquí sería el caso peor, porque una pantalla de
+conversación los muestra todos. Una página cuesta tres consultas —autorizar
+la fotografía, los comentarios, las respuestas— sea cual sea el número de
+comentarios, y hay una prueba que lo afirma con ese número.
+
+`comment_count_column` es una subconsulta correlacionada que las dos
+sentencias de `photos.py` incluyen, de modo que el total viaje dentro de la
+consulta que ya se estaba ejecutando. Cuenta la conversación completa,
+respuestas incluidas, que es el número que una pantalla muestra al lado de la
+fotografía.
+
+La lista de primer nivel baja de lo más reciente a lo más antiguo, como el
+resto de las colecciones; las respuestas dentro de un comentario suben. No es
+una inconsistencia: una pantalla abre por lo último que se dijo, y una
+conversación se lee hacia adelante.
+
 ### Evaluaciones y la excepción del resumen
 
 Los criterios son dato del código base y no una tabla, por la misma razón que

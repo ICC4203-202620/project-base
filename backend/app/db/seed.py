@@ -7,6 +7,7 @@ from sqlalchemy.engine import Connection
 from app.core.config import settings
 from app.core.security import hash_password
 from app.db.fixtures import (
+    COMMENT_FIXTURES,
     CUISINE_STYLES,
     DEMO_USERS,
     EVALUATION_FIXTURES,
@@ -18,6 +19,7 @@ from app.db.fixtures import (
     VISIT_FIXTURES,
 )
 from app.db.schema import (
+    comments,
     cuisine_styles,
     evaluation_photos,
     evaluation_ratings,
@@ -337,6 +339,21 @@ def _seed_feed_fixtures(
                 visibility=fixture.visibility,
                 created_at=fixture.created_at,
                 updated_at=fixture.created_at,
+            )
+        )
+        changed = True
+    existing_comment_ids = set(connection.scalars(select(comments.c.id)))
+    for fixture in COMMENT_FIXTURES:
+        if fixture.id in existing_comment_ids:
+            continue
+        connection.execute(
+            insert(comments).values(
+                id=fixture.id,
+                photo_id=fixture.photo_id,
+                author_id=user_ids[fixture.author_id],
+                parent_id=fixture.parent_id,
+                text=fixture.text,
+                created_at=fixture.created_at,
             )
         )
         changed = True

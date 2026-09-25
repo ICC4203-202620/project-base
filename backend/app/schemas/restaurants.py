@@ -226,6 +226,9 @@ class RestaurantPhotoResponse(BaseModel):
     created_at: datetime
     content_url: str
     review_id: UUID | None
+    # The whole conversation of the photograph, replies included, so the card
+    # of the gallery can offer the way into it.
+    comments_count: int
 
 
 class RestaurantPhotoPage(BaseModel):

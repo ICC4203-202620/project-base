@@ -328,6 +328,9 @@ moderación quedan para una evolución posterior.
 | `POST /api/v1/photos` | Publica la fotografía de un plato; responde `201` y publica `Location`. |
 | `GET /api/v1/photos/{id}` | Metadatos de una fotografía, o `404`. |
 | `GET /api/v1/photos/{id}/content` | Los bytes de la fotografía. |
+| `POST /api/v1/photos/{id}/comments` | Escribe en la conversación de una fotografía pública. |
+| `GET /api/v1/photos/{id}/comments` | La conversación, paginada por cursor. |
+| `GET /api/v1/comments/{id}/replies` | Las respuestas de un comentario. |
 
 Subir una fotografía es una acción completa en sí misma, y reseñarla es otra.
 Recibe `multipart/form-data` con `restaurant_id`, `kind`, `dish_name`,
@@ -370,6 +373,49 @@ transacción falla después, el objeto almacenado se elimina.
 
 Una fotografía pública la ve cualquier sesión; una privada, sólo su autor,
 tanto en sus metadatos como en su contenido.
+
+Los metadatos y cada tarjeta de la galería traen además `comments_count`, el
+total de la conversación de esa fotografía, respuestas incluidas, para que la
+interfaz decida si ofrece la entrada al thread.
+
+#### Comentar una fotografía
+
+`POST /api/v1/photos/{id}/comments` recibe `text` y, opcionalmente,
+`parent_id`. Responde `201`, publica `Location` y devuelve el comentario con
+su autor. El texto se recorta antes de guardarse y admite hasta mil
+caracteres; en blanco o más largo responde `422`.
+
+**Sólo se comenta una fotografía pública.** Una privada ajena responde `404`,
+indistinguible de una que no existe; una privada propia responde `422`,
+porque existe y lo que le falta no es permiso sino audiencia. El autor de la
+fotografía puede comentar la suya: es parte de la conversación, no una
+excepción.
+
+**El thread tiene dos niveles.** Responder a una respuesta se acepta, y el
+comentario queda colgado del comentario de primer nivel al que esa respuesta
+pertenece; nunca se abre un tercer nivel. Un `parent_id` inexistente o de otra
+fotografía responde `422`.
+
+`GET /api/v1/photos/{id}/comments` responde `{ items, next_cursor }` con los
+comentarios de primer nivel, **del más reciente al más antiguo**, que es por
+donde una pantalla abre. Cada item trae el comentario, `reply_count` y sus
+primeras tres respuestas, **de la más antigua a la más reciente**, porque una
+conversación se lee hacia adelante. Así la pantalla dibuja el thread sin una
+solicitud por comentario. Las respuestas restantes se piden en
+`GET /api/v1/comments/{id}/replies`, que pagina por cursor en ese mismo orden
+ascendente.
+
+Una fotografía sin comentarios responde una lista vacía, que no es un error.
+Un comentario que no existe responde `404`; uno que existe y nadie respondió,
+una lista vacía.
+
+**Un comentario no es actividad.** No aparece en el feed, no aparece en el
+perfil de su autor y no produce ningún aviso, ni siquiera a quien publicó la
+fotografía. El enunciado enumera como actividad la visita, la fotografía, la
+reseña y la evaluación, y define la conversación aparte.
+
+No hay edición, eliminación ni moderación de comentarios, en línea con el
+resto de la API. Es la evolución evidente para un despliegue real.
 
 ### Reseñar un plato
 

@@ -28,6 +28,7 @@ from app.db.retry import run_transaction_with_retry
 from app.db.schema import photos, restaurants, reviews, users
 from app.db.session import engine
 from app.media.storage import MediaLocation, MediaStorage, MediaStorageError
+from app.services.comments import comment_count_column
 from app.services.cursors import decode_time_cursor, encode_time_cursor, utc_timestamp
 from app.services.notifications import notify
 from app.services.restaurants import (
@@ -135,6 +136,9 @@ class GalleryPhoto:
     # Absent when the photograph was published on its own, which is what this
     # épica makes possible.
     review_id: UUID | None
+    # The whole conversation, replies included. Without it the interface
+    # cannot decide whether to offer the way into the thread.
+    comments_count: int
 
 
 @dataclass(frozen=True)
@@ -163,6 +167,7 @@ def _gallery_item(row) -> GalleryPhoto:
         created_at=utc_timestamp(row["created_at"]),
         content_url=f"/api/v1/photos/{row['id']}/content",
         review_id=row["review_id"],
+        comments_count=row["comments_count"],
     )
 
 
@@ -196,6 +201,7 @@ def list_restaurant_photos(
             author.c.handle.label("author_handle"),
             author.c.name.label("author_name"),
             reviews.c.id.label("review_id"),
+            comment_count_column().label("comments_count"),
         )
         .select_from(
             photos.join(author, photos.c.author_id == author.c.id).outerjoin(
@@ -513,6 +519,7 @@ def get_photo(photo_id: UUID, *, viewer_id: UUID) -> GalleryPhoto:
             author.c.handle.label("author_handle"),
             author.c.name.label("author_name"),
             reviews.c.id.label("review_id"),
+            comment_count_column().label("comments_count"),
         )
         .select_from(
             photos.join(author, photos.c.author_id == author.c.id).outerjoin(
