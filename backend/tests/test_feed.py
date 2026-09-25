@@ -1,9 +1,9 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, insert
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import StaticPool
 
@@ -17,7 +17,7 @@ from app.db.fixtures import (
     REVIEW_FIXTURES,
     VISIT_FIXTURES,
 )
-from app.db.schema import metadata
+from app.db.schema import metadata, photos, visits
 from app.main import app
 from app.services import feed as feed_service
 from app.services import users as user_service
@@ -312,3 +312,88 @@ def test_a_page_costs_one_query_whatever_the_number_of_classes(seeded_database):
     # nothing here is per row: the page holds more items than it cost queries.
     assert len(page["items"]) > len(statements)
     assert len(statements) <= 1 + 3 * len(ACTIVITY_SOURCES)
+
+
+# Enough of each class that an unbounded branch of the union would hand back
+# far more keys than any page can hold.
+BULK = 30
+
+
+def fill_with_activity(database, author, restaurant_id):
+    """Publish BULK visits and BULK photographs, all public, for one author."""
+    with database.begin() as connection:
+        for ordinal in range(BULK):
+            moment = datetime(2026, 9, 1, tzinfo=UTC) + timedelta(hours=ordinal)
+            connection.execute(
+                insert(visits).values(
+                    id=uuid4(),
+                    author_id=author.id,
+                    restaurant_id=restaurant_id,
+                    occurred_at=moment,
+                    visibility="public",
+                    created_at=moment,
+                )
+            )
+            photo_id = uuid4()
+            connection.execute(
+                insert(photos).values(
+                    id=photo_id,
+                    author_id=author.id,
+                    restaurant_id=restaurant_id,
+                    storage_key=f"test/photos/{photo_id}.webp",
+                    content_type="image/webp",
+                    size_bytes=1,
+                    visibility="public",
+                    kind="dish",
+                    dish_name=f"Plato {ordinal}",
+                    search_dish_name=f"plato {ordinal}",
+                    created_at=moment,
+                )
+            )
+
+
+def record_statements(database):
+    statements = []
+
+    def record(connection, cursor, statement, *rest):
+        del connection, cursor, rest
+        statements.append(statement)
+
+    return statements, record
+
+
+def test_no_source_hands_back_more_keys_than_a_page_can_hold(seeded_database):
+    fill_with_activity(seeded_database, DEMO_USERS[1], RESTAURANT_FOLLOWS[0][1])
+    statements, record = record_statements(seeded_database)
+
+    event.listen(seeded_database, "before_cursor_execute", record)
+    try:
+        page = feed_service.get_feed(DEMO_USERS[0].id, limit=5)
+    finally:
+        event.remove(seeded_database, "before_cursor_execute", record)
+
+    # The union is the first statement, and every branch carries its own cut
+    # plus the one that produces the page. A branch of a UNION ALL is not
+    # bounded by the LIMIT of the query that reads it.
+    assert statements[0].upper().count("LIMIT") == len(ACTIVITY_SOURCES) + 1
+    assert len(page["items"]) == 5
+
+
+def test_bounding_each_branch_does_not_change_any_page(seeded_database):
+    fill_with_activity(seeded_database, DEMO_USERS[1], RESTAURANT_FOLLOWS[0][1])
+    whole = activity_ids(feed_service.get_feed(DEMO_USERS[0].id, limit=200))
+
+    seen = []
+    cursor = None
+    while True:
+        page = feed_service.get_feed(DEMO_USERS[0].id, limit=5, cursor=cursor)
+        seen.extend(activity_ids(page))
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+
+    # One page of everything and many pages of five describe the same feed,
+    # although the branches were cut at 201 and at 6 respectively.
+    assert len(whole) > 2 * BULK
+    assert seen == whole
+    assert len(seen) == len(set(seen))

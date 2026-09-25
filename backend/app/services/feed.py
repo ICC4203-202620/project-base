@@ -37,7 +37,7 @@ def _followed_condition(source: ActivitySource, viewer_id: UUID):
     )
 
 
-def _source_keys(source: ActivitySource, viewer_id: UUID, cursor: str | None):
+def _source_keys(source: ActivitySource, viewer_id: UUID, cursor: str | None, limit: int):
     keys = source.keys(viewer_id).where(
         # Only public activity reaches a feed.
         source.visibility == PUBLIC,
@@ -53,7 +53,9 @@ def _source_keys(source: ActivitySource, viewer_id: UUID, cursor: str | None):
     if cursor:
         published_at, activity_id = decode_time_cursor(cursor)
         keys = source.after(keys, by="published", value=published_at, identifier=activity_id)
-    return keys
+    # Bounded before the union, and after the cursor: a branch cut without the
+    # cursor would hand back the same rows on every page.
+    return source.newest(keys, by="published", limit=limit)
 
 
 def get_feed(viewer_id: UUID, *, limit: int, cursor: str | None = None) -> dict:
@@ -62,8 +64,13 @@ def get_feed(viewer_id: UUID, *, limit: int, cursor: str | None = None) -> dict:
     The sort keys of every source are unioned, ordered and cut in SQL, so the
     page costs one bounded query however many classes of activity exist. Only
     the rows that made the page are then read.
+
+    Each source contributes at most `limit + 1` keys, because no more than
+    that can reach the page and the surplus is what decides whether there is
+    another one. The decision is taken on the merged result and not on any
+    single branch.
     """
-    key_sets = [_source_keys(source, viewer_id, cursor) for source in ACTIVITY_SOURCES]
+    key_sets = [_source_keys(source, viewer_id, cursor, limit + 1) for source in ACTIVITY_SOURCES]
     combined = union_all(*key_sets).subquery("activity")
     page = (
         select(combined)

@@ -32,7 +32,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import Column, and_, distinct, func, literal, or_, select
+from sqlalchemy import Column, and_, desc, distinct, func, literal, or_, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql import Select
 
@@ -99,6 +99,23 @@ class ActivitySource:
             and_(column == value, self._identity < identifier),
         )
         return keys.having(condition) if self.grouped_by is not None else keys.where(condition)
+
+    def newest(self, keys: Select, *, by: str, limit: int) -> Select:
+        """The most recent keys of this source, bounded and ready to be unioned.
+
+        A branch of a UNION ALL is not bounded by the LIMIT of the query that
+        reads it. PostgreSQL reads every branch whole and sorts the result, so
+        a page of the feed would cost a scan of the whole history of every
+        class. Bounded here, in the order the page itself uses, the planner
+        merges the branches and stops as soon as the page is full.
+
+        The bound travels inside a subquery and not on the branch itself:
+        SQLite rejects a parenthesised operand of a compound select, and this
+        form means the same thing to both engines.
+        """
+        column = self._sort_key(self.occurred_at if by == "occurred" else self.published_at)
+        bounded = keys.order_by(desc(column), desc(self._identity)).limit(limit).subquery()
+        return select(bounded)
 
     def count(self):
         """How many activities this source holds, which is acts and not rows.

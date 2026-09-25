@@ -209,12 +209,16 @@ def get_profile(handle: str, *, viewer_id: UUID) -> Profile:
     )
 
 
-def _profile_keys(source: ActivitySource, author_id: UUID, viewer_id: UUID, cursor: str | None):
+def _profile_keys(
+    source: ActivitySource, author_id: UUID, viewer_id: UUID, cursor: str | None, limit: int
+):
     keys = source.keys(viewer_id).where(source.author_id == author_id)
     if cursor:
         occurred_at, activity_id = decode_time_cursor(cursor)
         keys = source.after(keys, by="occurred", value=occurred_at, identifier=activity_id)
-    return keys
+    # The same bound the feed applies, for the same reason: the union reads
+    # every branch whole unless each one says where it stops.
+    return source.newest(keys, by="occurred", limit=limit)
 
 
 def get_activity(handle: str, *, viewer_id: UUID, limit: int, cursor: str | None = None) -> dict:
@@ -237,7 +241,7 @@ def get_activity(handle: str, *, viewer_id: UUID, limit: int, cursor: str | None
 
             combined = union_all(
                 *(
-                    _profile_keys(source, author_id, viewer_id, cursor)
+                    _profile_keys(source, author_id, viewer_id, cursor, limit + 1)
                     for source in ACTIVITY_SOURCES
                 )
             ).subquery("activity")
