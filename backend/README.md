@@ -510,6 +510,8 @@ ve cualquier sesión; una privada, sólo su autor, y para el resto responde
 | --- | --- |
 | `GET /api/v1/users?q=demo` | Busca personas por handle, paginado por cursor. |
 | `GET /api/v1/users/{handle}` | Perfil de una persona, tal como la sesión puede verlo. |
+| `PUT /api/v1/users/{handle}/follow` | Sigue a esa persona. |
+| `DELETE /api/v1/users/{handle}/follow` | Deja de seguirla. |
 | `GET /api/v1/users/{handle}/activity` | Su actividad, paginada por cursor. |
 
 Ambas rutas requieren sesión y aceptan el handle como el usuario lo escribe:
@@ -547,6 +549,19 @@ Los contadores siguen la misma regla. El dueño ve contada su actividad
 completa; otra persona ve contada sólo la pública, de modo que el contador
 coincide siempre con lo que esa persona puede listar. Un contador que
 incluyera actividad privada ajena delataría su existencia sin mostrarla.
+
+Seguir es **fijar un estado**, no acumular un evento: el botón de la interfaz
+declara «quiero seguir a esta persona», y por eso la acción es `PUT` y no
+`POST`. Las dos operaciones son idempotentes y responden `204` sin cuerpo:
+seguir a quien ya se sigue no es un conflicto, y dejar de seguir a quien no se
+sigue tampoco, porque en ambos casos el estado final es el que se pidió.
+Responder `409` obligaría a la interfaz a tratar como error una pulsación
+repetida, que sobre un teléfono con conexión intermitente es un caso
+frecuente.
+
+Seguirse a uno mismo responde `422`, y un handle inexistente responde `404`.
+Seguir a alguien no le notifica: el enunciado define la notificación como un
+aviso de actividad nueva, y un seguimiento no es actividad.
 
 El perfil trae además la relación del observador con esa persona —si la sigue,
 si es seguido por ella, si es su propio perfil— para que la interfaz decida

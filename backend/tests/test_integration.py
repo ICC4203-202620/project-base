@@ -718,6 +718,33 @@ def test_publishing_a_photograph_and_reviewing_it_with_postgresql(tmp_path):
         app.dependency_overrides.clear()
 
 
+def test_following_and_unfollowing_with_postgresql():
+    client = authenticated_client()
+    followed = DEMO_USERS[2].handle
+    origin = {"Origin": "http://testserver"}
+
+    before = client.get(f"/api/v1/users/{followed}").json()
+    first = client.put(f"/api/v1/users/{followed.upper()}/follow", headers=origin)
+    repeated = client.put(f"/api/v1/users/{followed}/follow", headers=origin)
+    after = client.get(f"/api/v1/users/{followed}").json()
+    listed = client.get(f"/api/v1/users?q={followed}").json()
+    removed = client.delete(f"/api/v1/users/{followed}/follow", headers=origin)
+    removed_again = client.delete(f"/api/v1/users/{followed}/follow", headers=origin)
+    finally_seen = client.get(f"/api/v1/users/{followed}").json()
+
+    assert before["viewer"]["following"] is False
+    assert first.status_code == repeated.status_code == 204
+    assert after["viewer"]["following"] is True
+    assert after["counters"]["followers"] == before["counters"]["followers"] + 1
+    assert next(item for item in listed["items"] if item["handle"] == followed)["following"] is True
+    assert removed.status_code == removed_again.status_code == 204
+    assert finally_seen["viewer"]["following"] is False
+
+    # Nobody follows themself, and an unknown handle is not a silent success.
+    assert client.put("/api/v1/users/demo/follow", headers=origin).status_code == 422
+    assert client.put("/api/v1/users/nadie_aqui/follow", headers=origin).status_code == 404
+
+
 def test_user_search_finds_people_by_handle_with_postgresql():
     client = authenticated_client()
 
