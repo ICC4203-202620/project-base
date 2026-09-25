@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
 
 from app.api.auth import router as auth_router
+from app.api.comments import comments_router
+from app.api.comments import router as photo_comments_router
 from app.api.countries import router as countries_router
 from app.api.evaluations import criteria_router
 from app.api.evaluations import router as evaluations_router
@@ -31,6 +33,8 @@ app.include_router(restaurants_router, prefix="/api/v1")
 app.include_router(cuisine_styles_router, prefix="/api/v1")
 app.include_router(reviews_router, prefix="/api/v1")
 app.include_router(photos_router, prefix="/api/v1")
+app.include_router(photo_comments_router, prefix="/api/v1")
+app.include_router(comments_router, prefix="/api/v1")
 app.include_router(feed_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(visits_router, prefix="/api/v1")

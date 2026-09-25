@@ -27,3 +27,5 @@ class PhotoResponse(BaseModel):
     content_url: str
     # Absent when the photograph was published on its own.
     review_id: UUID | None
+    # The whole conversation of the photograph, replies included.
+    comments_count: int
