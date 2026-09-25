@@ -39,8 +39,15 @@ def _followed_condition(source: ActivitySource, viewer_id: UUID):
 
 def _source_keys(source: ActivitySource, viewer_id: UUID, cursor: str | None):
     keys = source.keys(viewer_id).where(
-        # Only public activity reaches a feed, including the viewer's own.
+        # Only public activity reaches a feed.
         source.visibility == PUBLIC,
+        # And never the viewer's own, not even at a restaurant they follow.
+        # A feed is what one hears about, and nobody hears about what they
+        # just published; their own activity lives in their profile. It is
+        # also the rule the notifications apply, where the author is always
+        # excluded, and the application should not answer the same question
+        # in two ways.
+        source.author_id != viewer_id,
         _followed_condition(source, viewer_id),
     )
     if cursor:

@@ -86,13 +86,14 @@ def test_owner_sees_private_activity_and_counts_it(seeded_database):
 
     assert profile.handle == OWNER.handle
     assert profile.name == OWNER.name
-    assert profile.counters.activity == 4
-    assert set(activity_ids(page)) == {
+    # Four private and one public: the profile shows everything of its owner.
+    assert profile.counters.activity == 5
+    assert {
         private_review.id,
         private_visit.id,
         private_photo.id,
         private_evaluation.id,
-    }
+    } <= set(activity_ids(page))
     assert {item["type"] for item in page["items"]} == {
         "review",
         "visit",
@@ -108,9 +109,10 @@ def test_third_party_sees_neither_the_private_activity_nor_its_count(seeded_data
     profile = user_service.get_profile(OWNER.handle, viewer_id=AUTHOR.id)
     page = user_service.get_activity(OWNER.handle, viewer_id=AUTHOR.id, limit=20)
 
-    assert profile.counters.activity == 0
-    assert page["items"] == []
-    assert page["next_cursor"] is None
+    # Only the public visit of the owner, none of their four private ones.
+    assert profile.counters.activity == 1
+    assert len(page["items"]) == 1
+    assert page["items"][0]["visit"]["visibility"] == "public"
     assert profile.viewer.is_self is False
 
 

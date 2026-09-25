@@ -253,6 +253,16 @@ VISIT_FIXTURES = (
         datetime(2026, 8, 21, 10, tzinfo=UTC),
         "public",
     ),
+    # Pública y del propio usuario de demostración, en un restaurante que él
+    # sigue: aparece en su perfil y no en su feed.
+    VisitFixture(
+        UUID("50000000-0000-4000-8000-000000000005"),
+        DEMO_USERS[0].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        datetime(2026, 8, 28, 14, tzinfo=UTC),
+        datetime(2026, 8, 28, 14, tzinfo=UTC),
+        "public",
+    ),
 )
 
 

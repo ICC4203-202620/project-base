@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import StaticPool
 
@@ -13,12 +13,15 @@ from app.db.fixtures import (
     DEMO_USERS,
     EVALUATION_FIXTURES,
     PHOTO_FIXTURES,
+    RESTAURANT_FOLLOWS,
     REVIEW_FIXTURES,
     VISIT_FIXTURES,
 )
 from app.db.schema import metadata
 from app.main import app
 from app.services import feed as feed_service
+from app.services import users as user_service
+from app.services.activity import ACTIVITY_SOURCES
 from app.services.auth import AuthenticatedSession
 from app.services.cursors import InvalidCursorError
 from app.services.reviews import ReviewNotFoundError, ReviewStoreError
@@ -44,6 +47,7 @@ def seeded_database(monkeypatch):
     metadata.create_all(database)
     monkeypatch.setattr(seed_module, "engine", database)
     monkeypatch.setattr(feed_service, "engine", database)
+    monkeypatch.setattr(user_service, "engine", database)
     monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
     monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
     seed_module.seed(storage=FixtureStorage())
@@ -220,3 +224,89 @@ def test_feed_routes_validate_and_map_domain_errors(monkeypatch):
         assert client.get("/api/v1/feed?limit=51").status_code == 422
     finally:
         app.dependency_overrides.clear()
+
+
+# --- What the feed contains, and what it does not -----------------------------
+
+
+def test_the_feed_holds_every_class_of_activity_with_one_shape(seeded_database):
+    del seeded_database
+
+    page = feed_service.get_feed(DEMO_USERS[0].id, limit=50)
+
+    assert {item["type"] for item in page["items"]} == {
+        "review",
+        "visit",
+        "photo",
+        "evaluation",
+    }
+    for item in page["items"]:
+        # A screen walks the list by `type` without knowing which classes
+        # exist, and every item answers the same three questions.
+        assert set(item) == {"type", "occurred_at", "published_at", item["type"]}
+        assert item["occurred_at"] and item["published_at"]
+        assert item[item["type"]]["author"]["handle"]
+        assert item[item["type"]]["restaurant"]["id"]
+
+
+def test_the_feed_is_ordered_by_the_instant_of_publication(seeded_database):
+    del seeded_database
+
+    published = [
+        item["published_at"] for item in feed_service.get_feed(DEMO_USERS[0].id, limit=50)["items"]
+    ]
+
+    assert published == sorted(published, reverse=True)
+
+
+def test_nobody_reads_their_own_activity_in_their_feed(seeded_database):
+    del seeded_database
+    owner = DEMO_USERS[0]
+    own_public_visit = VISIT_FIXTURES[4]
+
+    feed = feed_service.get_feed(owner.id, limit=50)
+    profile = user_service.get_activity(owner.handle, viewer_id=owner.id, limit=50)
+
+    # It happened at a restaurant they follow, so the follow condition matches
+    # and only the author condition keeps it out.
+    assert own_public_visit.restaurant_id == RESTAURANT_FOLLOWS[0][1]
+    assert own_public_visit.id not in activity_ids(feed)
+    assert own_public_visit.id in [
+        item[item["type"]]["id"] for item in profile["items"] if item["type"] == "visit"
+    ]
+    assert all(
+        item[item["type"]]["author"]["id"] != owner.id
+        for item in feed["items"]
+        if item["type"] != "photo"
+    )
+
+
+def test_an_empty_feed_is_not_an_error(seeded_database):
+    del seeded_database
+    # `la_sibarita` follows nobody and no restaurant.
+    lonely = DEMO_USERS[4]
+
+    page = feed_service.get_feed(lonely.id, limit=50)
+
+    assert page == {"items": [], "next_cursor": None}
+
+
+def test_a_page_costs_one_query_whatever_the_number_of_classes(seeded_database):
+    statements = []
+
+    def record(connection, cursor, statement, *rest):
+        del connection, cursor, rest
+        statements.append(statement)
+
+    event.listen(seeded_database, "before_cursor_execute", record)
+    try:
+        page = feed_service.get_feed(DEMO_USERS[0].id, limit=50)
+    finally:
+        event.remove(seeded_database, "before_cursor_execute", record)
+
+    # One query unions the keys of every source, and then the classes present
+    # in the page are read, one query each — an evaluation adds two more for
+    # its ratings and its photographs, both grouped. What matters is that
+    # nothing here is per row: the page holds more items than it cost queries.
+    assert len(page["items"]) > len(statements)
+    assert len(statements) <= 1 + 3 * len(ACTIVITY_SOURCES)

@@ -605,6 +605,21 @@ registrar hoy una visita de hace un mes aparezca arriba en el feed de quienes
 siguen a su autor y no enterrada donde nadie la verá. Un cursor que esta API
 no emitió responde `422`.
 
+**El feed no incluye la actividad del propio usuario**, ni siquiera la
+publicada en un restaurante que sigue. Un feed es aquello de lo que uno se
+entera, y nadie se entera de lo que acaba de publicar; su actividad propia la
+consulta en su perfil. Es además la misma regla que rige las notificaciones,
+donde el autor siempre se excluye, y la aplicación no debería responder de dos
+maneras a la misma pregunta.
+
+El feed no ofrece filtros por clase de actividad ni por restaurante: el
+enunciado pide una vista cronológica única, y un filtro convierte el cursor en
+una familia de cursores que hay que invalidar cuando el filtro cambia. Tampoco
+tiene antigüedad máxima: «actividad reciente» es el orden, no un recorte, y
+quien sigue a poca gente debe poder llegar al final de su feed. Un feed sin
+nada que mostrar responde `200` con lista vacía y sin cursor, que la interfaz
+debe distinguir de un error.
+
 Cada clase de actividad viaja bajo una clave llamada como su `type`: una
 reseña en `review`, una visita en `visit`, una publicación de fotografías en
 `photo`. Un cliente que recorre la lista distingue por `type` y no necesita
