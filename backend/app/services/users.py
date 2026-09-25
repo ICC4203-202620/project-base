@@ -15,7 +15,7 @@ from functools import reduce
 from operator import add
 from uuid import UUID
 
-from sqlalchemy import desc, func, or_, select, union_all
+from sqlalchemy import and_, desc, func, or_, select, union_all
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.countries import country_name
@@ -23,7 +23,13 @@ from app.db.schema import user_follows, users
 from app.db.session import engine
 from app.services.activity import ACTIVITY_SOURCES, ActivitySource, hydrate
 from app.services.auth import normalize_handle
-from app.services.cursors import decode_time_cursor, encode_time_cursor, utc_timestamp
+from app.services.cursors import (
+    decode_cursor,
+    decode_time_cursor,
+    encode_cursor,
+    encode_time_cursor,
+    utc_timestamp,
+)
 from app.services.visibility import PUBLIC
 
 
@@ -33,6 +39,27 @@ class UserNotFoundError(Exception):
 
 class UserStoreError(Exception):
     """The user store could not complete an operation."""
+
+
+LIKE_ESCAPE = "\\"
+
+
+def _escaped(term: str) -> str:
+    """Escape what LIKE would otherwise read as a wildcard."""
+    return (
+        term.replace(LIKE_ESCAPE, LIKE_ESCAPE * 2)
+        .replace("%", f"{LIKE_ESCAPE}%")
+        .replace("_", f"{LIKE_ESCAPE}_")
+    )
+
+
+class SearchTermTooShortError(Exception):
+    """A one-character term would return the whole register of people."""
+
+
+# The same floor the restaurant search uses, so one search behaviour exists in
+# the application rather than two.
+MINIMUM_SEARCH_LENGTH = 2
 
 
 @dataclass(frozen=True)
@@ -231,3 +258,96 @@ def get_activity(handle: str, *, viewer_id: UUID, limit: int, cursor: str | None
         if has_next
         else None,
     }
+
+
+@dataclass(frozen=True)
+class UserSearchResult:
+    id: UUID
+    handle: str
+    name: str
+    nationality: Nationality
+    # Alongside the summary and not inside it: the search results and the
+    # profile need it, the author of every item of a feed page does not, and
+    # resolving it there would be a lookup per row.
+    following: bool
+
+
+@dataclass(frozen=True)
+class UserSearchPage:
+    items: tuple[UserSearchResult, ...]
+    next_cursor: str | None
+
+
+def search_users(
+    *, query: str, viewer_id: UUID, limit: int, cursor: str | None = None
+) -> UserSearchPage:
+    """Find people by handle.
+
+    By handle and not by name: it is what the épica asks, and searching real
+    names would turn the application into a directory of people, which is a
+    decision about privacy nobody took.
+
+    The term is normalized the way a handle is when it is registered, so
+    someone who types `@Demo` — which is how the interface shows handles —
+    finds `demo`. No extra normalized column is needed: the handle is already
+    stored in its comparison form, which is the benefit of that decision.
+    """
+    term = normalize_handle(query)
+    if len(term) < MINIMUM_SEARCH_LENGTH:
+        raise SearchTermTooShortError
+
+    follows = (
+        select(user_follows.c.follower_id)
+        .where(
+            user_follows.c.follower_id == viewer_id,
+            user_follows.c.followed_id == users.c.id,
+        )
+        .exists()
+    )
+    statement = select(
+        users.c.id,
+        users.c.handle,
+        users.c.name,
+        users.c.nationality,
+        follows.label("viewer_follows"),
+    ).where(users.c.handle.like(f"%{_escaped(term)}%", escape=LIKE_ESCAPE))
+    if cursor:
+        handle, user_id = decode_cursor(cursor)
+        statement = statement.where(
+            or_(
+                users.c.handle > handle,
+                and_(users.c.handle == handle, users.c.id > user_id),
+            )
+        )
+
+    try:
+        with engine.connect() as connection:
+            rows = (
+                connection.execute(
+                    statement.order_by(users.c.handle, users.c.id).limit(limit + 1)
+                )
+                .mappings()
+                .all()
+            )
+    except SQLAlchemyError as error:
+        raise UserStoreError from error
+
+    has_next = len(rows) > limit
+    rows = rows[:limit]
+    return UserSearchPage(
+        items=tuple(
+            UserSearchResult(
+                id=row["id"],
+                handle=row["handle"],
+                name=row["name"],
+                nationality=Nationality(
+                    code=row["nationality"], name=country_name(row["nationality"])
+                ),
+                # The viewer appears among their own results when the handle
+                # matches; hiding them would be an absence nobody can explain.
+                following=bool(row["viewer_follows"]),
+            )
+            for row in rows
+        ),
+        next_cursor=(encode_cursor(rows[-1]["handle"], rows[-1]["id"]) if has_next else None),
+    )

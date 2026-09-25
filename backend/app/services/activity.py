@@ -36,9 +36,22 @@ from sqlalchemy import Column, and_, distinct, func, literal, or_, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql import Select
 
+from app.core.countries import country_name
 from app.db.schema import evaluations, photos, restaurants, reviews, users, visits
 from app.services.cursors import utc_timestamp
 from app.services.visibility import PUBLIC
+
+
+def user_summary(row: Mapping, prefix: str = "author_") -> dict:
+    """The one shape a person has, built from a row that selected it."""
+    nationality = row[f"{prefix}nationality"]
+    return {
+        "id": row[f"{prefix}id"],
+        "handle": row[f"{prefix}handle"],
+        "name": row[f"{prefix}name"],
+        "nationality": {"code": nationality, "name": country_name(nationality)},
+    }
+
 
 REVIEW_TYPE = "review"
 VISIT_TYPE = "visit"
@@ -150,6 +163,7 @@ def review_activity_statement(viewer_id: UUID) -> Select:
             author.c.id.label("author_id"),
             author.c.handle.label("author_handle"),
             author.c.name.label("author_name"),
+            author.c.nationality.label("author_nationality"),
             restaurants.c.id.label("restaurant_id"),
             restaurants.c.name.label("restaurant_name"),
             restaurants.c.address.label("restaurant_address"),
@@ -176,11 +190,7 @@ def review_object(row: Mapping) -> dict:
         "visibility": row["visibility"],
         "created_at": created_at,
         "updated_at": utc_timestamp(row["updated_at"]),
-        "author": {
-            "id": row["author_id"],
-            "handle": row["author_handle"],
-            "name": row["author_name"],
-        },
+        "author": user_summary(row),
         "restaurant": {
             "id": row["restaurant_id"],
             "name": row["restaurant_name"],
@@ -233,6 +243,7 @@ def visit_activity_statement(viewer_id: UUID) -> Select:
             author.c.id.label("author_id"),
             author.c.handle.label("author_handle"),
             author.c.name.label("author_name"),
+            author.c.nationality.label("author_nationality"),
             restaurants.c.id.label("restaurant_id"),
             restaurants.c.name.label("restaurant_name"),
             restaurants.c.address.label("restaurant_address"),
@@ -252,11 +263,7 @@ def visit_object(row: Mapping) -> dict:
         "occurred_at": utc_timestamp(row["occurred_at"]),
         "visibility": row["visibility"],
         "created_at": utc_timestamp(row["created_at"]),
-        "author": {
-            "id": row["author_id"],
-            "handle": row["author_handle"],
-            "name": row["author_name"],
-        },
+        "author": user_summary(row),
         "restaurant": {
             "id": row["restaurant_id"],
             "name": row["restaurant_name"],
@@ -304,6 +311,7 @@ def photo_activity_statement(viewer_id: UUID) -> Select:
             author.c.id.label("author_id"),
             author.c.handle.label("author_handle"),
             author.c.name.label("author_name"),
+            author.c.nationality.label("author_nationality"),
             restaurants.c.id.label("restaurant_id"),
             restaurants.c.name.label("restaurant_name"),
             restaurants.c.address.label("restaurant_address"),
@@ -346,11 +354,7 @@ def photo_activity_item(rows: Sequence[Mapping]) -> dict:
         PHOTO_TYPE: {
             "kind": first["kind"],
             "visibility": first["visibility"],
-            "author": {
-                "id": first["author_id"],
-                "handle": first["author_handle"],
-                "name": first["author_name"],
-            },
+            "author": user_summary(first),
             "restaurant": {
                 "id": first["restaurant_id"],
                 "name": first["restaurant_name"],

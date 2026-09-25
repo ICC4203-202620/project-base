@@ -7,10 +7,25 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class Nationality(BaseModel):
+    code: str
+    # Null when the stored code is not in the catalogue, which a row written
+    # before the catalogue existed may be.
+    name: str | None
+
+
 class UserSummary(BaseModel):
+    """How a person is shown anywhere in the API.
+
+    Defined once: the author of an activity, the header of a profile and a
+    result of the user search are the same card, and three shapes of it would
+    force the client to normalize them before drawing.
+    """
+
     id: UUID
     handle: str
     name: str
+    nationality: Nationality
 
 
 class ActivityRestaurant(BaseModel):

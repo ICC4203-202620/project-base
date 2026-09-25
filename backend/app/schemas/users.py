@@ -1,16 +1,8 @@
 from datetime import datetime
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-
-class Nationality(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    code: str
-    # Null when the stored code is not in the catalogue, which a row written
-    # before the catalogue existed may be.
-    name: str | None
+from app.schemas.activity import UserSummary
 
 
 class ProfileCounters(BaseModel):
@@ -29,15 +21,33 @@ class ViewerRelationship(BaseModel):
     followed_by: bool
 
 
-class ProfileResponse(BaseModel):
+class ProfileResponse(UserSummary):
+    """The shared summary of a person, plus what only a profile shows."""
+
     model_config = ConfigDict(from_attributes=True)
 
-    id: UUID
-    handle: str
-    name: str
-    nationality: Nationality
     joined_at: datetime
-    # These three depend on who is asking: the owner sees their whole activity
+    # These two depend on who is asking: the owner sees their whole activity
     # counted, anyone else only the public part.
     counters: ProfileCounters
     viewer: ViewerRelationship
+
+
+class UserSearchResultResponse(UserSummary):
+    """The same summary, with the one thing the results screen needs.
+
+    The follow state travels alongside and not inside, because the author of
+    every item of a feed page does not need it and resolving it there would be
+    a lookup per row.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    following: bool
+
+
+class UserSearchPage(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: list[UserSearchResultResponse]
+    next_cursor: str | None
