@@ -686,6 +686,49 @@ consulta por clase —la evaluación agrega dos más, agrupadas, para sus
 calificaciones y sus fotografías—. Hay una prueba que lo fija comparando el
 número de consultas con el número de items.
 
+#### El `LIMIT` va en cada rama de la unión
+
+`ActivitySource.newest` acota cada origen a `limit + 1` claves **antes** de la
+unión, con el mismo orden que usa la página. No es redundante con el `LIMIT`
+exterior: **una rama de un `UNION ALL` no queda acotada por el `LIMIT` de la
+consulta que la lee**, y PostgreSQL no lo empuja hacia adentro.
+
+Medido sobre PostgreSQL 17, con doscientas mil filas en cada uno de los cuatro
+orígenes y una página de veinte:
+
+| | filas leídas | bloques | tiempo | plan |
+| --- | --- | --- | --- | --- |
+| sin acotar las ramas | 800.000 | 6014 | 76,7 ms | `Parallel Seq Scan` en las cuatro, `top-N heapsort` sobre el total |
+| acotando cada rama | 24 | 16 | 0,5 ms | `Merge Append` sobre cuatro `Index Only Scan Backward` |
+
+Con el corte escrito en cada rama el planificador elige `Merge Append`, que
+consume las cuatro en orden y se detiene apenas junta las veintiuna filas que
+necesita. Sin él, lee el historial completo de cada clase.
+
+Tres detalles que la implementación no puede perder:
+
+- **El corte va después del cursor.** Una rama acotada sin la condición del
+  cursor devolvería siempre las mismas claves, y la paginación no avanzaría.
+- **`limit + 1` y no `limit`.** El sobrante es el que decide si hay página
+  siguiente, y esa decisión se toma sobre el resultado de la mezcla, nunca
+  sobre una rama.
+- **El corte viaja dentro de una subconsulta**, no sobre la rama misma.
+  SQLite rechaza un operando entre paréntesis de un `SELECT` compuesto, y
+  `SELECT * FROM (SELECT ... LIMIT n)` significa lo mismo para los dos
+  motores y produce el mismo plan en PostgreSQL. El origen agrupado acota
+  sobre el resultado del `GROUP BY`, por la misma razón por la que su cursor
+  es un `HAVING`.
+
+El perfil aplica lo mismo en `get_activity`: es la misma unión con otra
+condición y ordenada por el otro instante.
+
+Dos pruebas lo fijan, y hacen cosas distintas. Una cuenta los `LIMIT` de la
+sentencia que produce la página y exige uno por origen más el de la mezcla;
+falla si alguien vuelve a armar la unión sin acotar. La otra compara una
+página de doscientos contra el recorrido completo de páginas de cinco sobre
+los mismos datos, y exige que describan el mismo feed: acotar es una consulta
+más barata para el mismo resultado, no un resultado distinto.
+
 ### Los dos instantes del envelope
 
 `app/services/activity.py` construye el envelope que comparten el feed y el

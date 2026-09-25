@@ -909,6 +909,38 @@ def test_the_conversation_of_a_photograph_works_with_postgresql():
     assert "comment" not in {item["type"] for item in feed["items"]}
 
 
+def test_the_bounded_union_pages_the_same_way_with_postgresql():
+    client = authenticated_client()
+    owner = DEMO_USERS[0]
+
+    def ids(payload):
+        return [
+            item["photo"]["photos"][0]["id"]
+            if item["type"] == "photo"
+            else item[item["type"]]["id"]
+            for item in payload["items"]
+        ]
+
+    def walk(path):
+        seen = []
+        cursor = None
+        while True:
+            suffix = f"&cursor={cursor}" if cursor else ""
+            page = client.get(f"{path}?limit=2{suffix}").json()
+            seen.extend(ids(page))
+            cursor = page["next_cursor"]
+            if cursor is None:
+                return seen
+
+    # Every branch of the union carries its own LIMIT inside a subquery, which
+    # is the one construction SQLite and PostgreSQL had to agree on.
+    for path in ("/api/v1/feed", f"/api/v1/users/{owner.handle}/activity"):
+        whole = ids(client.get(f"{path}?limit=50").json())
+        assert whole
+        assert walk(path) == whole
+        assert len(whole) == len(set(whole))
+
+
 def test_seeded_feed_and_review_detail_work_with_postgresql():
     client = authenticated_client()
 
