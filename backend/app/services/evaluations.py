@@ -27,6 +27,7 @@ from app.db.schema import (
 from app.db.session import engine
 from app.services.activity import user_summary
 from app.services.cursors import decode_time_cursor, encode_time_cursor
+from app.services.notifications import notify
 from app.services.photos import DISH
 from app.services.restaurants import RestaurantNotFoundError
 from app.services.visibility import PRIVATE, PUBLIC, VISIBILITIES, visible_to
@@ -229,6 +230,13 @@ def create_evaluation(
     except SQLAlchemyError as error:
         raise EvaluationStoreError from error
 
+    notify(
+        type="evaluation",
+        id=evaluation_id,
+        author_id=author_id,
+        restaurant_id=restaurant_id,
+        visibility=visibility,
+    )
     return Evaluation(
         id=evaluation_id,
         author_id=author_id,

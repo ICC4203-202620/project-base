@@ -169,8 +169,13 @@ def create_review(
         )
 
     try:
-        return run_transaction_with_retry(engine, persist)
+        review = run_transaction_with_retry(engine, persist)
     except (ReviewNotFoundError, InvalidReviewError, DuplicateReviewError):
         raise
     except SQLAlchemyError as error:
         raise ReviewStoreError from error
+
+    # A review announces nothing. The photograph it talks about already did
+    # when it was published, and the feed shows the two as a single entry, so
+    # a second warning would contradict what the follower will see.
+    return review

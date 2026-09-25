@@ -29,6 +29,7 @@ from app.db.schema import photos, restaurants, reviews, users
 from app.db.session import engine
 from app.media.storage import MediaLocation, MediaStorage, MediaStorageError
 from app.services.cursors import decode_time_cursor, encode_time_cursor, utc_timestamp
+from app.services.notifications import notify
 from app.services.restaurants import (
     RestaurantNotFoundError,
     normalize_restaurant_search_text,
@@ -405,11 +406,21 @@ def store_photo(
         raise PhotoMediaError from error
 
     normalized_caption = (caption or "").strip() or None
+    # Only the first photograph of an act announces it. With one request per
+    # file the backend cannot know the group is complete, and waiting for it
+    # would introduce deferred work this backend does not have and entrega 4
+    # migrates to Lambda. By the time the recipient opens the notification the
+    # group is complete anyway.
+    opens_the_act = True
 
     def persist(connection: Connection) -> None:
+        nonlocal opens_the_act
         if not connection.scalar(select(restaurants.c.id).where(restaurants.c.id == restaurant_id)):
             raise RestaurantNotFoundError
         if upload_group is not None:
+            opens_the_act = not connection.scalar(
+                select(photos.c.id).where(photos.c.upload_group == upload_group).limit(1)
+            )
             _check_group(
                 connection,
                 upload_group,
@@ -448,6 +459,14 @@ def store_photo(
         compensate_storage(storage, storage_key)
         raise PhotoStoreError from error
 
+    if opens_the_act:
+        notify(
+            type="photo",
+            id=upload_group or photo_id,
+            author_id=author_id,
+            restaurant_id=restaurant_id,
+            visibility=visibility,
+        )
     return Photo(
         id=photo_id,
         author_id=author_id,

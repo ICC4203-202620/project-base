@@ -17,6 +17,7 @@ from app.db.retry import run_transaction_with_retry
 from app.db.schema import restaurants, visits
 from app.db.session import engine
 from app.services.activity import visit_activity_statement, visit_object
+from app.services.notifications import notify
 from app.services.restaurants import RestaurantNotFoundError
 from app.services.visibility import VISIBILITIES
 
@@ -107,6 +108,13 @@ def create_visit(
     except SQLAlchemyError as error:
         raise VisitStoreError from error
 
+    notify(
+        type="visit",
+        id=visit_id,
+        author_id=author_id,
+        restaurant_id=restaurant_id,
+        visibility=visibility,
+    )
     # No uniqueness constraint: a person visits the same restaurant many times,
     # and that is the normal case rather than a mistake.
     return Visit(
