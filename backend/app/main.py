@@ -4,6 +4,8 @@ from mangum import Mangum
 
 from app.api.auth import router as auth_router
 from app.api.countries import router as countries_router
+from app.api.evaluations import criteria_router
+from app.api.evaluations import router as evaluations_router
 from app.api.feed import router as feed_router
 from app.api.photos import router as photos_router
 from app.api.restaurants import cuisine_styles_router
@@ -23,6 +25,8 @@ app.add_middleware(
 )
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(countries_router, prefix="/api/v1")
+app.include_router(evaluations_router, prefix="/api/v1")
+app.include_router(criteria_router, prefix="/api/v1")
 app.include_router(restaurants_router, prefix="/api/v1")
 app.include_router(cuisine_styles_router, prefix="/api/v1")
 app.include_router(reviews_router, prefix="/api/v1")

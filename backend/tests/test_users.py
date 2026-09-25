@@ -9,7 +9,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_current_session
 from app.db import seed as seed_module
-from app.db.fixtures import DEMO_USERS, PHOTO_FIXTURES, REVIEW_FIXTURES, VISIT_FIXTURES
+from app.db.fixtures import (
+    DEMO_USERS,
+    EVALUATION_FIXTURES,
+    PHOTO_FIXTURES,
+    REVIEW_FIXTURES,
+    VISIT_FIXTURES,
+)
 from app.db.schema import metadata, users
 from app.main import app
 from app.services import users as user_service
@@ -71,15 +77,26 @@ def test_owner_sees_private_activity_and_counts_it(seeded_database):
     private_review = REVIEW_FIXTURES[2]
     private_visit = VISIT_FIXTURES[1]
     private_photo = PHOTO_FIXTURES[2]
+    private_evaluation = EVALUATION_FIXTURES[2]
 
     profile = user_service.get_profile(OWNER.handle, viewer_id=OWNER.id)
     page = user_service.get_activity(OWNER.handle, viewer_id=OWNER.id, limit=20)
 
     assert profile.handle == OWNER.handle
     assert profile.name == OWNER.name
-    assert profile.counters.activity == 3
-    assert set(activity_ids(page)) == {private_review.id, private_visit.id, private_photo.id}
-    assert {item["type"] for item in page["items"]} == {"review", "visit", "photo"}
+    assert profile.counters.activity == 4
+    assert set(activity_ids(page)) == {
+        private_review.id,
+        private_visit.id,
+        private_photo.id,
+        private_evaluation.id,
+    }
+    assert {item["type"] for item in page["items"]} == {
+        "review",
+        "visit",
+        "photo",
+        "evaluation",
+    }
     assert profile.viewer.is_self is True
 
 
@@ -141,7 +158,7 @@ def test_handle_is_resolved_however_it_is_written(seeded_database):
         profile = user_service.get_profile(written, viewer_id=OWNER.id)
         page = user_service.get_activity(written, viewer_id=OWNER.id, limit=20)
         assert profile.handle == AUTHOR.handle, written
-        assert len(page["items"]) == 6, written
+        assert len(page["items"]) == 7, written
 
 
 def test_unknown_handle_is_not_an_empty_profile(seeded_database):
@@ -199,6 +216,7 @@ def test_activity_pages_are_stable_and_reject_a_foreign_cursor(seeded_database):
     # Ordered by when each activity happened, which is what a profile is. The
     # backdated visit comes last here and first in the feed.
     expected = [
+        EVALUATION_FIXTURES[0].id,
         # The three menu photographs are one act, dated by the earliest.
         PHOTO_FIXTURES[3].id,
         PHOTO_FIXTURES[0].id,
@@ -284,6 +302,6 @@ def test_profile_response_shape_is_what_the_interface_needs(seeded_database, mon
     payload = response.json()
     assert payload["handle"] == AUTHOR.handle
     assert payload["nationality"] == {"code": "AR", "name": "Argentina"}
-    # Six acts, not eight rows: the three menu photographs are one publication.
-    assert payload["counters"] == {"activity": 6, "followers": 1, "following": 0}
+    # Seven acts, not nine rows: the three menu photographs are one publication.
+    assert payload["counters"] == {"activity": 7, "followers": 1, "following": 0}
     assert payload["viewer"] == {"is_self": False, "following": True, "followed_by": False}

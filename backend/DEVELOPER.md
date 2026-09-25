@@ -510,6 +510,28 @@ origen de actividad de fotografías lo expresa con una condición extra —`NOT
 EXISTS` sobre la reseña—, que el contador del perfil aplica también, para que
 nunca prometa filas que la lista no va a producir.
 
+### Evaluaciones y la excepción del resumen
+
+Los criterios son dato del código base y no una tabla, por la misma razón que
+el catálogo de países: una fila que nadie edita agrega una migración y un seed
+sin agregar una capacidad, y un criterio que aparece o desaparece invalida los
+promedios ya calculados. La calificación, en cambio, es una fila por criterio
+y no una columna por criterio: agregar uno es una entrada más en el catálogo
+en vez de una migración de esquema.
+
+**El resumen de la ficha es la única excepción a la regla del observador.**
+Todo lo demás en este backend responde según quién pregunta; el promedio de un
+restaurante, no. Agrega sólo evaluaciones públicas para todos, porque un
+promedio que cambiara con el observador no sería comparable entre
+restaurantes, y su autor vería un número que nadie más ve. La consecuencia
+está tomada en serio: el contador de evaluaciones de la ficha y la lista de
+`/restaurants/{id}/evaluations` describen ese mismo conjunto, de modo que los
+tres números coincidan en la misma pantalla.
+
+`_evaluation_summary` era desde #39 el punto único identificado para esto.
+Cuando llegaron las evaluaciones, sólo esa función cambió: ni el router ni la
+forma de la respuesta lo hicieron.
+
 ## Perfil de usuario y regla de visibilidad
 
 `app/services/users.py` es donde vive la regla de visibilidad del proyecto, y

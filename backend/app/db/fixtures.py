@@ -61,6 +61,18 @@ class PhotoFixture:
 
 
 @dataclass(frozen=True)
+class EvaluationFixture:
+    id: UUID
+    author_id: UUID
+    restaurant_id: UUID
+    ratings: tuple[tuple[str, int], ...]
+    comment: str
+    visibility: str
+    created_at: datetime
+    photo_ids: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True)
 class VisitFixture:
     """A check-in.
 
@@ -317,6 +329,40 @@ PHOTO_FIXTURES = (
         "La terraza al atardecer.",
         "public",
         datetime(2026, 8, 25, 19, tzinfo=UTC),
+    ),
+)
+
+
+# Dos públicas sobre el mismo restaurante con calificaciones distintas, una
+# privada que no mueve ningún promedio, y una con fotografías asociadas.
+EVALUATION_FIXTURES = (
+    EvaluationFixture(
+        UUID("80000000-0000-4000-8000-000000000001"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        (("comida", 5), ("servicio", 4), ("ambiente", 5), ("precio-calidad", 4)),
+        "Volvería sin dudarlo.",
+        "public",
+        datetime(2026, 8, 26, 13, tzinfo=UTC),
+        (UUID("60000000-0000-4000-8000-000000000004"),),
+    ),
+    EvaluationFixture(
+        UUID("80000000-0000-4000-8000-000000000002"),
+        DEMO_USERS[2].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        (("comida", 3), ("servicio", 2), ("ambiente", 4), ("precio-calidad", 3)),
+        "Buena comida, servicio lento.",
+        "public",
+        datetime(2026, 8, 26, 18, tzinfo=UTC),
+    ),
+    EvaluationFixture(
+        UUID("80000000-0000-4000-8000-000000000003"),
+        DEMO_USERS[0].id,
+        UUID("20000000-0000-4000-8000-000000000002"),
+        (("comida", 4), ("servicio", 5), ("ambiente", 3), ("precio-calidad", 4)),
+        "Evaluación privada docente.",
+        "private",
+        datetime(2026, 8, 27, 20, tzinfo=UTC),
     ),
 )
 

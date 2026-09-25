@@ -9,7 +9,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.dependencies import get_current_session
 from app.db import seed as seed_module
-from app.db.fixtures import DEMO_USERS, PHOTO_FIXTURES, REVIEW_FIXTURES, VISIT_FIXTURES
+from app.db.fixtures import (
+    DEMO_USERS,
+    EVALUATION_FIXTURES,
+    PHOTO_FIXTURES,
+    REVIEW_FIXTURES,
+    VISIT_FIXTURES,
+)
 from app.db.schema import metadata
 from app.main import app
 from app.services import feed as feed_service
@@ -68,6 +74,8 @@ def activity_ids(page):
 # was published. The backdated visit leads precisely because it was recorded
 # last, which is the difference the feed orders by.
 EXPECTED_FEED = [
+    EVALUATION_FIXTURES[1].id,
+    EVALUATION_FIXTURES[0].id,
     PHOTO_FIXTURES[6].id,
     PHOTO_FIXTURES[3].id,
     PHOTO_FIXTURES[1].id,
@@ -92,7 +100,14 @@ def test_seeded_feed_mixes_both_classes_once_and_excludes_private(seeded_databas
     assert ids.count(REVIEW_FIXTURES[0].id) == 1
     assert REVIEW_FIXTURES[2].id not in ids
     assert VISIT_FIXTURES[1].id not in ids
-    assert {item["type"] for item in page["items"]} == {"review", "visit", "photo"}
+    assert {item["type"] for item in page["items"]} == {
+        "review",
+        "visit",
+        "photo",
+        "evaluation",
+    }
+    # The private evaluation of another account never reaches this feed.
+    assert EVALUATION_FIXTURES[2].id not in ids
     # The private photograph of another account never reaches this feed.
     assert PHOTO_FIXTURES[2].id not in ids
     assert page["next_cursor"] is None

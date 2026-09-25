@@ -36,13 +36,14 @@ from sqlalchemy import Column, and_, distinct, func, literal, or_, select
 from sqlalchemy.engine import Connection
 from sqlalchemy.sql import Select
 
-from app.db.schema import photos, restaurants, reviews, users, visits
+from app.db.schema import evaluations, photos, restaurants, reviews, users, visits
 from app.services.cursors import utc_timestamp
 from app.services.visibility import PUBLIC
 
 REVIEW_TYPE = "review"
 VISIT_TYPE = "visit"
 PHOTO_TYPE = "photo"
+EVALUATION_TYPE = "evaluation"
 
 
 @dataclass(frozen=True)
@@ -392,6 +393,44 @@ def _hydrate_photos(
     return {act: photo_activity_item(act_rows) for act, act_rows in grouped.items()}
 
 
+# --- Evaluations -------------------------------------------------------------
+
+
+def evaluation_activity_item(row: Mapping, ratings, photo_ids) -> dict:
+    from app.services.evaluations import evaluation_object
+
+    evaluation = evaluation_object(row, ratings, photo_ids)
+    published_at = utc_timestamp(row["created_at"])
+    evaluation["created_at"] = published_at
+    return {
+        "type": EVALUATION_TYPE,
+        "occurred_at": published_at,
+        "published_at": published_at,
+        EVALUATION_TYPE: evaluation,
+    }
+
+
+def _hydrate_evaluations(
+    connection: Connection, viewer_id: UUID, identifiers: Sequence[UUID]
+) -> dict[UUID, dict]:
+    from app.services.evaluations import evaluation_statement, load_details
+
+    rows = (
+        connection.execute(
+            evaluation_statement(viewer_id).where(evaluations.c.id.in_(identifiers))
+        )
+        .mappings()
+        .all()
+    )
+    ratings, associated = load_details(connection, [row["id"] for row in rows])
+    return {
+        row["id"]: evaluation_activity_item(
+            row, ratings.get(row["id"], []), associated.get(row["id"], [])
+        )
+        for row in rows
+    }
+
+
 # --- The registry ------------------------------------------------------------
 
 ACTIVITY_SOURCES: tuple[ActivitySource, ...] = (
@@ -426,6 +465,16 @@ ACTIVITY_SOURCES: tuple[ActivitySource, ...] = (
         hydrate=_hydrate_photos,
         extra_condition=_photo_without_review,
         grouped_by=PHOTO_ACT,
+    ),
+    ActivitySource(
+        type=EVALUATION_TYPE,
+        author_id=evaluations.c.author_id,
+        restaurant_id=evaluations.c.restaurant_id,
+        visibility=evaluations.c.visibility,
+        occurred_at=evaluations.c.created_at,
+        published_at=evaluations.c.created_at,
+        identifier=evaluations.c.id,
+        hydrate=_hydrate_evaluations,
     ),
 )
 

@@ -643,13 +643,23 @@ def list_restaurants(*, query: str | None, limit: int, cursor: str | None = None
 
 
 def _evaluation_summary(connection: Connection, restaurant_id: UUID) -> RatingSummary:
-    """The single point épica 11 fills.
+    """The averages of the restaurant, filled by the evaluation service.
 
-    It is identified on purpose: when evaluations exist, only this function
-    changes, and neither the router nor the shape of the response does.
+    It was identified as a single point from #39 precisely so that only this
+    function would change when evaluations arrived, and neither the router nor
+    the shape of the response did.
     """
-    del connection, restaurant_id
-    return RatingSummary(criteria=(), average=None, total=0)
+    from app.services.evaluations import restaurant_rating_summary
+
+    summary = restaurant_rating_summary(connection, restaurant_id)
+    return RatingSummary(
+        criteria=tuple(
+            CriterionAverage(criterion=criterion, average=average)
+            for criterion, average in summary["criteria"]
+        ),
+        average=summary["average"],
+        total=summary["total"],
+    )
 
 
 def _restaurant_counters_statement(restaurant_id: UUID, viewer_id: UUID):
