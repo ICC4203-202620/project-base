@@ -97,7 +97,7 @@ Tres advertencias sobre este procedimiento:
 | `backend/app/core/config.py` | Ambos agregan campos de configuración. Conserven los dos bloques. |
 | `backend/pyproject.toml` | Ambos agregan dependencias. Conserven las dos listas. |
 | `docker-compose.yml` | Ambos agregan variables de entorno al servicio `backend`. Conserven las dos. |
-| `backend/app/services/reviews.py` | El código base amplía la creación de reseñas. Para no perder el enganche del emisor de push, el servicio expone un punto de extensión documentado en [DEVELOPER.md](../backend/DEVELOPER.md); trasladen ahí su llamada en lugar de conservar la línea original. |
+| `backend/app/services/reviews.py` | El código base reescribe la creación de reseñas: ahora se escriben sobre una fotografía que ya existe. El enganche del emisor de push **ya no vive aquí**; trasladen su llamada al módulo de notificaciones, como se explica abajo. |
 
 El código base no modifica `frontend/public/`, el service worker, el manifest, los iconos ni los módulos de push y de almacenamiento offline. Ese código es del grupo y llega intacto a esta entrega.
 
@@ -192,7 +192,11 @@ La entrega 2 usó una regla deliberadamente simple: una reseña nueva notificaba
 
 A partir de esta entrega, una actividad pública notifica a quienes siguen a su autor y a quienes siguen al restaurante en que ocurrió, excluyendo al autor. Una actividad privada no notifica a nadie. Cuando una persona sigue tanto al autor como al restaurante, recibe una sola notificación por cada instalación suscrita.
 
-El código base provee la consulta que resuelve esos destinatarios. El grupo adapta su emisor de la entrega 2 para usarla, en lugar de recorrer todas las suscripciones activas.
+El código base provee la consulta que resuelve esos destinatarios, y un único punto donde enganchar el emisor. El grupo adapta el suyo de la entrega 2 para usarlos, en lugar de recorrer todas las suscripciones activas.
+
+El enganche es uno solo, en `backend/app/services/notifications.py`. En la entrega 2 la llamada vivía dentro de la creación de una reseña, que era razonable cuando la reseña era la única clase de actividad; ahora hay cinco —visita, fotografía, reseña, evaluación y la publicación de varias fotografías como un acto— y todas invocan el mismo punto. El grupo instala su emisor con `set_notifier` y recibe, por cada actividad publicada, su tipo, su identificador y **los destinatarios ya resueltos**: identificadores de usuario, sin repetición y sin el autor. Mapearlos a suscripciones es trabajo del emisor, porque la tabla de suscripciones es del grupo y el código base no la conoce.
+
+La consulta recibe autor, restaurante y visibilidad, que es lo que toda clase de actividad tiene, y no es un endpoint: publicar «quiénes deben enterarse de esto» expondría el grafo de seguidores a cualquiera con sesión.
 
 ## Requisitos del frontend
 

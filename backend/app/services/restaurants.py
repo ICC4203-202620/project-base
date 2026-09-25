@@ -341,6 +341,56 @@ def _resolve_cuisine_style_ids(connection: Connection, slugs: Sequence[str]) -> 
     return [ids_by_slug[slug] for slug in slugs]
 
 
+def follow_restaurant(*, user_id: UUID, restaurant_id: UUID) -> None:
+    """Start following a restaurant, with the shape épica 13 fixed for people."""
+
+    def persist(connection: Connection) -> None:
+        if not connection.scalar(select(restaurants.c.id).where(restaurants.c.id == restaurant_id)):
+            raise RestaurantNotFoundError
+        already = connection.scalar(
+            select(restaurant_follows.c.user_id).where(
+                restaurant_follows.c.user_id == user_id,
+                restaurant_follows.c.restaurant_id == restaurant_id,
+            )
+        )
+        if already:
+            return
+        connection.execute(
+            insert(restaurant_follows).values(user_id=user_id, restaurant_id=restaurant_id)
+        )
+
+    try:
+        run_transaction_with_retry(engine, persist)
+    except RestaurantNotFoundError:
+        raise
+    except IntegrityError:
+        # Two simultaneous requests: the state asked for is the one written.
+        return
+    except SQLAlchemyError as error:
+        raise RestaurantStoreError from error
+
+
+def unfollow_restaurant(*, user_id: UUID, restaurant_id: UUID) -> None:
+    """Stop following it, whether or not one was following it."""
+
+    def persist(connection: Connection) -> None:
+        if not connection.scalar(select(restaurants.c.id).where(restaurants.c.id == restaurant_id)):
+            raise RestaurantNotFoundError
+        connection.execute(
+            delete(restaurant_follows).where(
+                restaurant_follows.c.user_id == user_id,
+                restaurant_follows.c.restaurant_id == restaurant_id,
+            )
+        )
+
+    try:
+        run_transaction_with_retry(engine, persist)
+    except RestaurantNotFoundError:
+        raise
+    except SQLAlchemyError as error:
+        raise RestaurantStoreError from error
+
+
 def _find_by_identity_key(identity_key: str) -> Restaurant | None:
     """Recover the row that won a concurrent creation, best effort.
 

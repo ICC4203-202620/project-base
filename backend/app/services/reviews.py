@@ -16,6 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.db.retry import run_transaction_with_retry
 from app.db.schema import photos, reviews
 from app.db.session import engine
+from app.services.notifications import notify
 from app.services.photos import DISH
 from app.services.visibility import PRIVATE, PUBLIC, VISIBILITIES, visible_to
 
@@ -169,8 +170,17 @@ def create_review(
         )
 
     try:
-        return run_transaction_with_retry(engine, persist)
+        review = run_transaction_with_retry(engine, persist)
     except (ReviewNotFoundError, InvalidReviewError, DuplicateReviewError):
         raise
     except SQLAlchemyError as error:
         raise ReviewStoreError from error
+
+    notify(
+        type="review",
+        id=review.id,
+        author_id=author_id,
+        restaurant_id=review.restaurant_id,
+        visibility=visibility,
+    )
+    return review

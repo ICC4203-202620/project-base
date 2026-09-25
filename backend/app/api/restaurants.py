@@ -323,6 +323,61 @@ def show(
         _raise_http_error(error)
 
 
+@router.put(
+    "/{restaurant_id}/follow",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_trusted_origin)],
+    summary="Follow a restaurant",
+    responses={
+        204: {
+            "description": (
+                "Whether the follow was created or already existed, with the same shape the "
+                "follow of a person has, so the interface writes one button and not two."
+            )
+        },
+        404: {"description": "No restaurant has this identifier"},
+    },
+)
+def follow(
+    restaurant_id: UUID,
+    session: Annotated[AuthenticatedSession, Depends(get_current_session)],
+) -> None:
+    try:
+        restaurant_service.follow_restaurant(
+            user_id=session.user_id, restaurant_id=restaurant_id
+        )
+    except (
+        restaurant_service.RestaurantNotFoundError,
+        restaurant_service.RestaurantStoreError,
+    ) as error:
+        _raise_http_error(error)
+
+
+@router.delete(
+    "/{restaurant_id}/follow",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_trusted_origin)],
+    summary="Stop following a restaurant",
+    responses={
+        204: {"description": "Whether the follow existed or not"},
+        404: {"description": "No restaurant has this identifier"},
+    },
+)
+def unfollow(
+    restaurant_id: UUID,
+    session: Annotated[AuthenticatedSession, Depends(get_current_session)],
+) -> None:
+    try:
+        restaurant_service.unfollow_restaurant(
+            user_id=session.user_id, restaurant_id=restaurant_id
+        )
+    except (
+        restaurant_service.RestaurantNotFoundError,
+        restaurant_service.RestaurantStoreError,
+    ) as error:
+        _raise_http_error(error)
+
+
 @router.get(
     "/{restaurant_id}/evaluations",
     response_model=EvaluationPage,

@@ -618,6 +618,42 @@ Base64url lo hace utilizable dentro de un query string.
 El códec vive fuera del feed porque el perfil lo usa con otra clave de orden,
 y las colecciones de restaurantes lo usarán con una clave que no es temporal.
 
+## Notificaciones dirigidas
+
+`app/services/notifications.py` responde una sola pregunta —a quién
+corresponde avisar de una actividad— y se detiene ahí. Enviar es el emisor de
+Web Push de cada grupo, que vive en el mismo proceso, y **por eso esto es una
+función y no un endpoint**: uno que respondiera «quiénes deben enterarse de
+esto» publicaría el grafo de seguidores a cualquiera con sesión.
+
+`resolve_recipients` recibe autor, restaurante y visibilidad, que es lo que
+toda clase de actividad tiene, de modo que agregar una clase no cambia nada
+aquí. La deduplicación ocurre en la consulta, como una unión lógica de ambas
+condiciones de seguimiento y no como dos listas concatenadas después: quien
+sigue al autor y al restaurante es un destinatario, no dos. Devuelve
+identificadores de usuario y no suscripciones, porque la tabla de
+suscripciones es de cada grupo y este módulo no debe conocerla.
+
+El enganche es único. Antes de la épica 14 vivía dentro de la creación de una
+reseña, lo que era razonable mientras la reseña era la única clase de
+actividad; con cinco habría obligado a cada grupo a repetir su llamada cinco
+veces y a descubrir por su cuenta las cuatro nuevas. Ahora los cinco servicios
+invocan `notify` **después** de que su transacción se confirma, nunca dentro:
+avisar sobre una escritura que después revierte produce avisos de contenido
+que no existe, y el reintento de una transacción bajo Aurora DSQL puede
+ejecutar su cuerpo más de una vez. Un emisor que falla se registra y no
+propaga: no puede deshacer una actividad que ya está escrita.
+
+El aviso de un grupo de fotografías lo dispara la primera del grupo, y el
+identificador que viaja es el del grupo. Con una solicitud por archivo el
+backend no puede saber que el acto está completo, y esperar a que lo esté
+introduciría trabajo diferido que este backend no tiene.
+
+Una consecuencia que conviene tener presente: publicar la fotografía de un
+plato y después reseñarla produce dos avisos, porque son dos actividades. Es
+el costo de que publicar y opinar sean dos acciones distintas, que es
+justamente lo que el enunciado describe.
+
 ## Configuración
 
 `app/core/config.py` define `Settings`, que hereda de `BaseSettings`. Pydantic

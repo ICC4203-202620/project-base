@@ -137,6 +137,8 @@ Todas las rutas de restaurantes requieren esa sesión:
 | `POST /api/v1/restaurants` | Crea un restaurante; responde `201` y publica `Location`. |
 | `GET /api/v1/restaurants/{id}` | Ficha del restaurante, tal como la sesión puede verla. |
 | `GET /api/v1/restaurants/{id}/photos` | Galería del restaurante, paginada por cursor. |
+| `PUT /api/v1/restaurants/{id}/follow` | Sigue el restaurante. |
+| `DELETE /api/v1/restaurants/{id}/follow` | Deja de seguirlo. |
 | `PATCH /api/v1/restaurants/{id}` | Modifica únicamente los campos presentes. |
 | `DELETE /api/v1/restaurants/{id}` | Elimina el recurso y responde `204`. |
 
@@ -191,6 +193,16 @@ responde `422`.
 La visibilidad de una fotografía es suya y no se deduce de la reseña que la
 acompañe: `GET /api/v1/photos/{id}/content` autoriza contra ella, de modo que
 la galería y el contenido concuerdan siempre.
+
+#### Seguir un restaurante
+
+Con la misma forma que seguir a una persona: `PUT` y `DELETE` sobre un
+subrecurso, idempotentes, `204` sin cuerpo. La interfaz escribe un botón y no
+dos. Seguir un restaurante no notifica a nadie, y el estado aparece en la
+ficha bajo `viewer`.
+
+Lo que sí hace es cambiar de qué se entera esa persona: la actividad pública
+publicada en ese restaurante pasa a producirle una notificación.
 
 #### Restaurantes del mapa
 
