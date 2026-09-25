@@ -298,6 +298,7 @@ def _seed_feed_fixtures(
                 photo_id=fixture.photo_id,
                 author_id=author_id,
                 restaurant_id=restaurant_id,
+                rating=fixture.rating,
                 text=fixture.text,
                 visibility=fixture.visibility,
                 created_at=fixture.created_at,

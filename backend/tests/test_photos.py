@@ -56,7 +56,14 @@ def seeded_database(monkeypatch):
         poolclass=StaticPool,
     )
     metadata.create_all(database)
-    for module in (seed_module, photo_service, restaurant_service, feed_service, user_service):
+    for module in (
+        seed_module,
+        photo_service,
+        restaurant_service,
+        review_service,
+        feed_service,
+        user_service,
+    ):
         monkeypatch.setattr(module, "engine", database)
     monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
     monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
@@ -388,25 +395,22 @@ def test_the_routes_require_a_session():
     )
 
 
-def test_the_review_contract_did_not_change(seeded_database):
+def test_a_published_photograph_can_be_reviewed_afterwards(seeded_database):
     del seeded_database
-    storage = MemoryStorage()
+    photo = publish(dish_name="Charquicán")
 
-    review = review_service.create_review(
+    written = review_service.create_review(
         author_id=AUTHOR.id,
-        restaurant_id=RESTAURANT,
-        dish_name="Charquicán",
+        photo_id=photo.id,
+        rating=5,
         text="Muy casero",
-        photo_stream=png_file(),
-        declared_content_type="image/png",
-        storage=storage,
+        visibility="public",
     )
 
-    assert review.dish_name == "Charquicán"
-    assert review.visibility == "public"
-    assert review.photo.dish_name == "Charquicán"
-    assert review.photo.visibility == "public"
-    assert review.created_at == review.photo.created_at
+    # Publishing and reviewing are two steps the interface can chain.
+    assert written.photo_id == photo.id
+    assert written.dish_name == "Charquicán"
+    assert written.rating == 5
 
 
 # --- Menus, premises and the act of publishing several ------------------------
