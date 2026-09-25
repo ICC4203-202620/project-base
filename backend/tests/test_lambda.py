@@ -282,7 +282,12 @@ def test_lambda_handler_serves_feed_and_review_detail(monkeypatch):
         "rating": 4,
         "text": "Muy fresco",
         "visibility": "public",
-        "author": {"id": session.user_id, "handle": session.handle, "name": session.name},
+        "author": {
+            "id": session.user_id,
+            "handle": session.handle,
+            "name": session.name,
+            "nationality": {"code": "CL", "name": "Chile"},
+        },
         "restaurant": {"id": uuid4(), "name": "Puerto Lima", "address": "Santiago"},
         "photo": {
             "id": uuid4(),

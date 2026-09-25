@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.dependencies import get_current_session
 from app.schemas.activity import ActivityPage
-from app.schemas.users import ProfileResponse
+from app.schemas.users import ProfileResponse, UserSearchPage
 from app.services import users as user_service
 from app.services.auth import AuthenticatedSession
 from app.services.cursors import InvalidCursorError
@@ -19,6 +19,21 @@ router = APIRouter(
 def _raise_http_error(error: Exception) -> NoReturn:
     if isinstance(error, user_service.UserNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if isinstance(error, user_service.SearchTermTooShortError):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=[
+                {
+                    "type": "value_error",
+                    "loc": ["query", "q"],
+                    "msg": (
+                        "Search term must be at least "
+                        f"{user_service.MINIMUM_SEARCH_LENGTH} characters long"
+                    ),
+                    "input": None,
+                }
+            ],
+        )
     if isinstance(error, InvalidCursorError):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -28,6 +43,38 @@ def _raise_http_error(error: Exception) -> NoReturn:
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="User service unavailable",
     )
+
+
+@router.get(
+    "",
+    response_model=UserSearchPage,
+    summary="Find people by handle",
+    responses={
+        200: {
+            "description": (
+                "Each result carries the shared summary of a person and whether the viewer "
+                "already follows them, so the button can be drawn without one request per row."
+            )
+        },
+        422: {"description": "A term shorter than two characters, or a foreign cursor"},
+    },
+)
+def search(
+    session: Annotated[AuthenticatedSession, Depends(get_current_session)],
+    q: Annotated[str, Query(max_length=64)],
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    cursor: str | None = None,
+) -> user_service.UserSearchPage:
+    try:
+        return user_service.search_users(
+            query=q, viewer_id=session.user_id, limit=limit, cursor=cursor
+        )
+    except (
+        user_service.SearchTermTooShortError,
+        user_service.UserStoreError,
+        InvalidCursorError,
+    ) as error:
+        _raise_http_error(error)
 
 
 @router.get(

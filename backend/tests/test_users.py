@@ -305,3 +305,137 @@ def test_profile_response_shape_is_what_the_interface_needs(seeded_database, mon
     # Seven acts, not nine rows: the three menu photographs are one publication.
     assert payload["counters"] == {"activity": 7, "followers": 1, "following": 0}
     assert payload["viewer"] == {"is_self": False, "following": True, "followed_by": False}
+
+
+# --- Finding people by handle -------------------------------------------------
+
+
+def search(term, viewer=OWNER, **kwargs):
+    return user_service.search_users(
+        query=term, viewer_id=viewer.id, limit=kwargs.pop("limit", 50), **kwargs
+    )
+
+
+def handles(page):
+    return [result.handle for result in page.items]
+
+
+def test_search_matches_a_prefix_and_a_term_inside_the_handle(seeded_database):
+    del seeded_database
+
+    assert handles(search("demo")) == ["demo", "demo2", "demo_viajera"]
+    assert handles(search("sibarita")) == ["la_sibarita"]
+    assert handles(search("nadie")) == []
+
+
+def test_the_term_is_read_the_way_a_handle_is_written(seeded_database):
+    del seeded_database
+
+    for written in ("@demo2", "DEMO2", " @Demo2 "):
+        assert handles(search(written)) == ["demo2"], written
+
+
+def test_a_term_that_would_return_the_register_is_rejected(seeded_database):
+    del seeded_database
+
+    for term in ("", "   ", "d", "@d"):
+        with pytest.raises(user_service.SearchTermTooShortError):
+            search(term)
+
+
+def test_wildcards_typed_by_the_user_are_not_wildcards(seeded_database):
+    del seeded_database
+
+    assert handles(search("%%")) == []
+    assert handles(search("__")) == []
+
+
+def test_results_carry_the_follow_state_in_both_directions(seeded_database):
+    del seeded_database
+
+    seen_by_follower = {result.handle: result.following for result in search("demo").items}
+    seen_by_followed = {
+        result.handle: result.following for result in search("demo", viewer=AUTHOR).items
+    }
+
+    assert seen_by_follower[AUTHOR.handle] is True
+    assert seen_by_follower[OWNER.handle] is False
+    # The viewer appears among their own results, and does not follow themself.
+    assert seen_by_followed[AUTHOR.handle] is False
+    assert seen_by_followed[OWNER.handle] is False
+
+
+def test_results_carry_the_shared_summary_of_a_person(seeded_database):
+    del seeded_database
+
+    result = next(item for item in search("demo2").items if item.handle == AUTHOR.handle)
+
+    assert result.name == AUTHOR.name
+    assert result.nationality.code == "AR"
+    assert result.nationality.name == "Argentina"
+    assert not hasattr(result, "email")
+
+
+def test_search_pages_by_cursor_without_repeating_or_skipping(seeded_database):
+    del seeded_database
+    every = handles(search("demo"))
+
+    seen = []
+    cursor = None
+    while True:
+        page = search("demo", limit=1, cursor=cursor)
+        seen.extend(handles(page))
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+
+    assert seen == every
+    assert len(seen) == len(set(seen))
+
+
+def test_a_cursor_this_api_did_not_issue_is_rejected(seeded_database):
+    del seeded_database
+
+    with pytest.raises(InvalidCursorError):
+        search("demo", cursor="no-es-un-cursor")
+
+
+def test_search_failures_are_reported_as_store_errors(seeded_database, monkeypatch):
+    del seeded_database
+
+    class BrokenEngine:
+        def connect(self):
+            raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(user_service, "engine", BrokenEngine())
+    with pytest.raises(user_service.UserStoreError):
+        search("demo")
+
+
+def test_the_search_endpoint_answers_the_contract(seeded_database):
+    del seeded_database
+    app.dependency_overrides[get_current_session] = session
+    client = TestClient(app)
+    try:
+        found = client.get("/api/v1/users?q=@Demo2")
+        short = client.get("/api/v1/users?q=d")
+        broken_cursor = client.get("/api/v1/users?q=demo&cursor=roto")
+        empty = client.get("/api/v1/users?q=nadie_asi")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert found.status_code == 200
+    result = found.json()["items"][0]
+    assert result["handle"] == AUTHOR.handle
+    assert result["nationality"] == {"code": "AR", "name": "Argentina"}
+    assert result["following"] is True
+    assert "email" not in result
+    assert short.status_code == 422
+    assert short.json()["detail"][0]["loc"] == ["query", "q"]
+    assert broken_cursor.status_code == 422
+    assert empty.status_code == 200
+    assert empty.json() == {"items": [], "next_cursor": None}
+
+
+def test_the_search_requires_a_session():
+    assert TestClient(app).get("/api/v1/users?q=demo").status_code == 401

@@ -25,6 +25,7 @@ from app.db.schema import (
     users,
 )
 from app.db.session import engine
+from app.services.activity import user_summary
 from app.services.cursors import decode_time_cursor, encode_time_cursor
 from app.services.photos import DISH
 from app.services.restaurants import RestaurantNotFoundError
@@ -302,6 +303,7 @@ def evaluation_statement(viewer_id: UUID):
             author.c.id.label("author_id"),
             author.c.handle.label("author_handle"),
             author.c.name.label("author_name"),
+            author.c.nationality.label("author_nationality"),
             restaurants.c.id.label("restaurant_id"),
             restaurants.c.name.label("restaurant_name"),
             restaurants.c.address.label("restaurant_address"),
@@ -344,11 +346,7 @@ def evaluation_object(row: Mapping, ratings, photo_ids) -> dict:
         "comment": row["comment"],
         "visibility": row["visibility"],
         "created_at": row["created_at"],
-        "author": {
-            "id": row["author_id"],
-            "handle": row["author_handle"],
-            "name": row["author_name"],
-        },
+        "author": user_summary(row),
         "restaurant": {
             "id": row["restaurant_id"],
             "name": row["restaurant_name"],

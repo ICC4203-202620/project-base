@@ -215,7 +215,8 @@ def test_seed_maps_user_id_and_email_collisions_to_persisted_ids(monkeypatch, fi
     assert seed_module.seed() is True
     assert seed_module.seed() is False
     assert len(fixture_storage.stored) == len(REVIEW_FIXTURES) + len(PHOTO_FIXTURES)
-    assert hashed_passwords == [DEMO_USERS[2].password]
+    # Only the users that were not already persisted get hashed.
+    assert hashed_passwords == [fixture.password for fixture in DEMO_USERS[2:]]
     with engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(users)) == len(DEMO_USERS)
         assert (

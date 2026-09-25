@@ -546,6 +546,20 @@ de la colección; contar sin filtrar delata la existencia de lo que no se
 muestra. Por eso el contador de actividad de un perfil coincide siempre con lo
 que el mismo observador puede listar.
 
+Una persona tiene **una sola forma** en toda la API: identificador, handle,
+nombre y nacionalidad. El autor de una actividad, la cabecera de un perfil y
+un resultado de la búsqueda son la misma tarjeta, y tres formas distintas
+obligarían al cliente a normalizarlas antes de dibujarlas. `user_summary` la
+construye desde cualquier consulta que la haya seleccionado.
+
+El estado de seguimiento no forma parte de ese resumen. Lo acompaña donde la
+pantalla lo necesita —la búsqueda y el perfil— y no donde no: resolverlo para
+el autor de cada item de una página de feed sería una consulta por fila.
+
+La búsqueda de personas no necesita una columna normalizada adicional, a
+diferencia de la de restaurantes: el handle ya se almacena en su forma de
+comparación, que es justamente el beneficio de la decisión de la épica 1.
+
 El perfil se resuelve en una sola consulta. Los tres contadores y las dos
 direcciones del seguimiento son subconsultas correlacionadas sobre `users`, no
 una consulta por dato. El handle se normaliza con la función de la épica 1, de

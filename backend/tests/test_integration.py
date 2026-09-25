@@ -718,6 +718,35 @@ def test_publishing_a_photograph_and_reviewing_it_with_postgresql(tmp_path):
         app.dependency_overrides.clear()
 
 
+def test_user_search_finds_people_by_handle_with_postgresql():
+    client = authenticated_client()
+
+    found = client.get("/api/v1/users?q=@DEMO")
+    walked = []
+    cursor = None
+    while True:
+        page = client.get(
+            f"/api/v1/users?q=demo&limit=1&cursor={cursor}"
+            if cursor
+            else "/api/v1/users?q=demo&limit=1"
+        ).json()
+        walked.extend(item["handle"] for item in page["items"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+
+    assert found.status_code == 200
+    handles = [item["handle"] for item in found.json()["items"]]
+    assert handles == sorted(handles)
+    assert "demo" in handles
+    assert walked == handles
+    assert len(walked) == len(set(walked))
+    assert all("email" not in item for item in found.json()["items"])
+
+    assert client.get("/api/v1/users?q=d").status_code == 422
+    assert client.get("/api/v1/users?q=demo&cursor=roto").status_code == 422
+
+
 def test_profile_and_activity_apply_visibility_with_postgresql():
     owner, author = DEMO_USERS[0], DEMO_USERS[1]
     owner_client, author_client = TestClient(app), TestClient(app)

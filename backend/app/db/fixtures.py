@@ -129,6 +129,25 @@ DEMO_USERS = (
         "PE",
         "demo-password",
     ),
+    # Los dos siguientes ejercitan la búsqueda de personas: «demo» comparte
+    # prefijo con las cuentas de arriba, y «sibarita» aparece dentro de un
+    # handle que no empieza con esa palabra.
+    UserFixture(
+        UUID("00000000-0000-4000-8000-000000000004"),
+        "demo_viajera@example.com",
+        "demo_viajera",
+        "Demo Viajera",
+        "MX",
+        "demo-password",
+    ),
+    UserFixture(
+        UUID("00000000-0000-4000-8000-000000000005"),
+        "sibarita@example.com",
+        "la_sibarita",
+        "La Sibarita",
+        "ES",
+        "demo-password",
+    ),
 )
 
 USER_FOLLOWS = (

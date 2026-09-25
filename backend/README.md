@@ -508,12 +508,34 @@ ve cualquier sesión; una privada, sólo su autor, y para el resto responde
 
 | Método y path | Resultado |
 | --- | --- |
+| `GET /api/v1/users?q=demo` | Busca personas por handle, paginado por cursor. |
 | `GET /api/v1/users/{handle}` | Perfil de una persona, tal como la sesión puede verlo. |
 | `GET /api/v1/users/{handle}/activity` | Su actividad, paginada por cursor. |
 
 Ambas rutas requieren sesión y aceptan el handle como el usuario lo escribe:
 `demo`, `@demo` y `DEMO` resuelven al mismo perfil. Un handle que no existe
 responde `404`, y no una página vacía: son respuestas distintas.
+
+`q` busca por handle, no por nombre: es lo que pide la épica, y buscar por
+nombre real convertiría la aplicación en un directorio de personas, que es una
+decisión de privacidad que nadie tomó. El término se lee como se escribe un
+handle —se le retira una arroba inicial y se pasa a minúsculas—, así que
+`@Demo`, `demo` y `DEMO` encuentran lo mismo. Un término de menos de dos
+caracteres responde `422`, igual que en la búsqueda de restaurantes.
+
+Cada resultado trae el **resumen compartido de una persona** —identificador,
+handle, nombre y nacionalidad— acompañado de si el observador ya la sigue, para
+que el botón se dibuje sin una solicitud por resultado. El estado de
+seguimiento viaja al lado del resumen y no dentro: el autor de cada item de una
+página de feed no lo necesita, y resolverlo ahí sería una consulta por fila.
+
+**Ninguna respuesta de usuarios expone el correo.** Es el único dato de la
+tabla que no es público.
+
+Esta búsqueda requiere sesión, y eso es lo que la distingue del endpoint de
+disponibilidad de handle que el registro no ofrece: aquel sería público,
+porque el registro lo es, y daría un oráculo para enumerar los handles de la
+aplicación a cualquiera antes de tener cuenta.
 
 **La misma URL devuelve cosas distintas según quién pregunta.** El backend
 recibe la identidad del observador desde la cookie y entrega sólo lo que esa
