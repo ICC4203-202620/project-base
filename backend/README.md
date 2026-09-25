@@ -330,36 +330,61 @@ transacción falla después, el objeto almacenado se elimina.
 Una fotografía pública la ve cualquier sesión; una privada, sólo su autor,
 tanto en sus metadatos como en su contenido.
 
-### Reseñar un plato
+### Creación de reseñas con fotografía
 
-`POST /api/v1/reviews` agrega una reseña a una **fotografía que ya existe**.
-Recibe JSON con `photo_id`, `rating`, `text` y `visibility`; ya no recibe
-multipart ni crea la fotografía, porque publicarla es una acción y reseñarla
-es otra.
+`POST /api/v1/reviews` crea la reseña pública de la sesión vigente. Recibe
+`multipart/form-data` con exactamente estos campos:
 
-La reseña la escribe **quien tomó la fotografía**. Hay una razón de dominio
-—uno reseña el plato que comió y fotografió— y otra estructural: cada
-fotografía admite una sola reseña, así que permitir que cualquiera la escriba
-dejaría a un tercero ocupando el único espacio que su dueño tiene. Sólo se
-reseña una fotografía de plato.
+| Campo | Tipo y límite |
+| --- | --- |
+| `restaurant_id` | UUID de un restaurante existente. |
+| `dish_name` | Texto entre 1 y 120 caracteres, sin contar espacios exteriores. |
+| `text` | Texto entre 1 y 2000 caracteres, sin contar espacios exteriores. |
+| `photo` | Una imagen JPEG, PNG o WebP válida; 10 MiB como máximo por defecto. |
 
-La calificación va de 1 a 5, la misma escala que usarán los criterios de
-evaluación de un restaurante, de modo que la interfaz presente un solo tipo de
-control.
+El backend comprueba el contenido real de la imagen, no solamente el nombre o
+el MIME informado por el cliente. Una creación exitosa responde `201 Created`,
+incluye el path futuro de detalle en `Location` y entrega una URL estable como
+`/api/v1/photos/{photo_id}/content`. Esta última requiere sesión: nunca expone
+la ruta del disco, la clave S3 ni guarda una URL prefirmada en la base.
 
-**Una reseña nunca es más visible que su fotografía.** Privada sobre una
-fotografía pública es coherente —comparto la foto y me guardo la opinión—;
-pública sobre una privada responde `422`, porque mostraría a todos el texto de
-algo que nadie puede ver.
+Por ejemplo, después del login del siguiente bloque, reemplaza
+`foto-del-plato.jpg` por una imagen propia:
 
-Una segunda reseña sobre la misma fotografía responde `409` con la que ya
-existe, para que la interfaz lleve hasta ella. Una fotografía inexistente o no
-visible responde `404`; una calificación fuera de rango, un texto en blanco o
-una fotografía ajena o que no es de plato responden `422`.
+```console
+curl -i -b foodie-cookie.txt \
+  -H 'Origin: http://localhost:5173' \
+  -F 'restaurant_id=20000000-0000-4000-8000-000000000001' \
+  -F 'dish_name=Pastel de choclo' \
+  -F 'text=Muy sabroso y bien presentado.' \
+  -F 'photo=@foto-del-plato.jpg;type=image/jpeg' \
+  http://localhost:5173/api/v1/reviews
+```
 
-Una fotografía reseñada deja de aparecer como actividad propia: la reseña la
-lleva consigo, y contarlas por separado mostraría dos veces la misma
-fotografía al mismo seguidor.
+No agregues manualmente `Content-Type: multipart/form-data`: `curl` y
+`FormData` en el navegador generan el boundary que separa las partes. La
+[guía de archivos de FastAPI](https://fastapi.tiangolo.com/tutorial/request-files/)
+explica por qué `UploadFile` permite procesar la carga sin copiar un archivo
+arbitrariamente grande completo a memoria.
+
+En Docker Compose, `MEDIA_STORAGE_BACKEND=local` guarda las fotografías en el
+volumen nombrado `media-data`, montado en `/data/media`. `docker compose down`
+y la recreación del contenedor conservan tanto ese volumen como
+`postgres-data`. Para borrar deliberadamente **todos** los datos locales del
+proyecto, incluidos base y fotografías, usa `docker compose down --volumes`.
+Si sólo necesitas retirar las fotografías, detén primero el stack con
+`docker compose down` y elimina `project-base_media-data` con
+`docker volume rm project-base_media-data`; el prefijo cambia si usaste otro
+nombre de proyecto Compose.
+
+Para probar un bucket privado S3, configura las variables documentadas en
+`.env.local.example` y cambia `MEDIA_STORAGE_BACKEND=s3`. Boto3 usa su
+[cadena normal de credenciales](https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html):
+en desarrollo puede recibir un perfil o variables desde un override local, y
+en Lambda usa el rol de ejecución. Nunca agregues access keys al repositorio.
+La API devuelve una redirección temporal a una
+[URL prefirmada](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)
+después de autorizar la ruta estable.
 
 ### Feed y detalle de reseñas
 

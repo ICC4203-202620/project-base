@@ -86,7 +86,6 @@ class ReviewFixture:
     asset_name: str
     content_type: str
     dish_name: str
-    rating: int
     text: str
     visibility: str
     created_at: datetime
@@ -140,7 +139,6 @@ REVIEW_FIXTURES = (
         "pastel-de-choclo.webp",
         "image/webp",
         "Pastel de choclo",
-        5,
         "Reseña pública visible por ambos seguimientos.",
         "public",
         datetime(2026, 8, 20, 12, tzinfo=UTC),
@@ -153,7 +151,6 @@ REVIEW_FIXTURES = (
         "ceviche.webp",
         "image/webp",
         "Ceviche",
-        4,
         "Reseña pública visible por autor seguido.",
         "public",
         datetime(2026, 8, 19, 12, tzinfo=UTC),
@@ -166,7 +163,6 @@ REVIEW_FIXTURES = (
         "sopaipillas.webp",
         "image/webp",
         "Sopaipillas",
-        2,
         "Reseña privada docente.",
         "private",
         datetime(2026, 8, 18, 12, tzinfo=UTC),
@@ -179,7 +175,6 @@ REVIEW_FIXTURES = (
         "sopaipillas.webp",
         "image/webp",
         "Sopaipillas con pebre",
-        3,
         "Reseña pública visible sólo por restaurante seguido.",
         "public",
         datetime(2026, 8, 18, 18, tzinfo=UTC),

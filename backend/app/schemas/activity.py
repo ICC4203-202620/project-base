@@ -36,7 +36,6 @@ class ActivityPhoto(BaseModel):
 class ActivityReview(BaseModel):
     id: UUID
     dish_name: str
-    rating: int
     text: str
     visibility: Literal["public", "private"]
     author: UserSummary

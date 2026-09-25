@@ -14,6 +14,7 @@ from app.media.storage import get_media_storage
 from app.services import feed as feed_service
 from app.services import photos as photo_service
 from app.services import restaurants as restaurant_service
+from app.services import reviews as review_service
 from app.services.auth import AuthenticatedSession, IssuedSession
 
 
@@ -163,8 +164,7 @@ def test_lambda_handler_serves_protected_restaurant_collection(monkeypatch):
     assert received == {"query": "lambda", "limit": 5, "cursor": None}
 
 
-def test_lambda_handler_parses_multipart_photo_upload(monkeypatch):
-    """Multipart now enters through the photo endpoint, which is what uploads."""
+def test_lambda_handler_parses_multipart_review_upload(monkeypatch):
     session = AuthenticatedSession(
         id=uuid4(),
         user_id=uuid4(),
@@ -188,6 +188,17 @@ def test_lambda_handler_parses_multipart_photo_upload(monkeypatch):
         caption=None,
         created_at=timestamp,
     )
+    review = review_service.Review(
+        id=uuid4(),
+        author_id=session.user_id,
+        restaurant_id=restaurant_id,
+        dish_name="Ceviche",
+        text="Muy fresco",
+        visibility="public",
+        photo=photo,
+        created_at=timestamp,
+        updated_at=timestamp,
+    )
     image = BytesIO()
     Image.new("RGB", (2, 2), color="tomato").save(image, format="PNG")
     image_bytes = image.getvalue()
@@ -198,14 +209,11 @@ def test_lambda_handler_parses_multipart_photo_upload(monkeypatch):
             'Content-Disposition: form-data; name="restaurant_id"\r\n\r\n'
             f"{restaurant_id}\r\n"
             f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="kind"\r\n\r\n'
-            "dish\r\n"
-            f"--{boundary}\r\n"
             'Content-Disposition: form-data; name="dish_name"\r\n\r\n'
             "Ceviche\r\n"
             f"--{boundary}\r\n"
-            'Content-Disposition: form-data; name="visibility"\r\n\r\n'
-            "public\r\n"
+            'Content-Disposition: form-data; name="text"\r\n\r\n'
+            "Muy fresco\r\n"
             f"--{boundary}\r\n"
             'Content-Disposition: form-data; name="photo"; filename="dish.png"\r\n'
             "Content-Type: image/png\r\n\r\n"
@@ -215,29 +223,12 @@ def test_lambda_handler_parses_multipart_photo_upload(monkeypatch):
     )
     received = {}
 
-    def store_photo(**kwargs):
+    def create_review(**kwargs):
         received.update(kwargs)
         assert kwargs["photo_stream"].read() == image_bytes
-        return photo
+        return review
 
-    monkeypatch.setattr(photo_service, "store_photo", store_photo)
-    monkeypatch.setattr(
-        photo_service,
-        "get_photo",
-        lambda photo_id, **kwargs: photo_service.GalleryPhoto(
-            id=photo.id,
-            author=photo_service.PhotoAuthor(
-                id=session.user_id, handle=session.handle, name=session.name
-            ),
-            kind="dish",
-            visibility="public",
-            dish_name="Ceviche",
-            caption=None,
-            created_at=timestamp,
-            content_url=photo.content_url,
-            review_id=None,
-        ),
-    )
+    monkeypatch.setattr(review_service, "create_review", create_review)
     app.dependency_overrides[get_current_session] = lambda: session
     app.dependency_overrides[get_media_storage] = lambda: object()
     origin = "https://example.execute-api.us-east-1.amazonaws.com"
@@ -245,7 +236,7 @@ def test_lambda_handler_parses_multipart_photo_upload(monkeypatch):
         response = handler(
             api_gateway_event(
                 "POST",
-                "/api/v1/photos",
+                "/api/v1/reviews",
                 body=base64.b64encode(multipart).decode(),
                 headers={
                     "content-type": f"multipart/form-data; boundary={boundary}",
@@ -260,7 +251,7 @@ def test_lambda_handler_parses_multipart_photo_upload(monkeypatch):
         app.dependency_overrides.clear()
 
     assert response["statusCode"] == 201
-    assert json.loads(response["body"])["id"] == str(photo.id)
+    assert json.loads(response["body"])["id"] == str(review.id)
     assert received["author_id"] == session.user_id
     assert received["declared_content_type"] == "image/png"
 
@@ -279,7 +270,6 @@ def test_lambda_handler_serves_feed_and_review_detail(monkeypatch):
     review = {
         "id": review_id,
         "dish_name": "Ceviche",
-        "rating": 4,
         "text": "Muy fresco",
         "visibility": "public",
         "author": {"id": session.user_id, "handle": session.handle, "name": session.name},

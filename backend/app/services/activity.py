@@ -141,7 +141,6 @@ def review_activity_statement(viewer_id: UUID) -> Select:
         select(
             reviews.c.id,
             photos.c.dish_name,
-            reviews.c.rating,
             reviews.c.text,
             reviews.c.visibility,
             reviews.c.created_at,
@@ -170,7 +169,6 @@ def review_object(row: Mapping) -> dict:
     return {
         "id": row["id"],
         "dish_name": row["dish_name"],
-        "rating": row["rating"],
         "text": row["text"],
         "visibility": row["visibility"],
         "created_at": created_at,

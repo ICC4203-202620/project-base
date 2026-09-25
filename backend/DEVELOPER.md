@@ -466,22 +466,14 @@ sólo esa función cambia, y ni el router ni la forma de la respuesta lo hacen.
 ### Fotografías: un solo camino de subida
 
 `app/services/photos.py` es el único lugar por donde una imagen entra al
-sistema, y el orden de siempre —validar, almacenar el objeto, abrir la
-transacción— está escrito una sola vez.
+sistema. La creación de una reseña no duplica la validación, el almacenamiento
+ni la compensación: llama a `store_photo` y le pasa qué escribir dentro de la
+misma transacción que persiste la fotografía. Así `create_review` sigue siendo
+el único punto donde se persiste una reseña, que es donde los grupos enganchan
+su emisor de Web Push.
 
-La reseña ya no sube nada: se escribe sobre una fotografía que existe, y
-`create_review` sigue siendo el único punto donde se persiste una reseña, que
-es donde los grupos enganchan su emisor de Web Push. **Su firma cambió** con la
-épica 10: recibe `photo_id`, `rating`, `text` y `visibility` en vez del archivo
-y el nombre del plato, y ya no recibe el proveedor de medios. Un emisor
-enganchado ahí tiene que leer el restaurante de la reseña devuelta y no de sus
-argumentos.
-
-Quién puede reseñar y con qué visibilidad se valida dentro de la misma
-transacción que escribe la fila: la reseña la escribe quien tomó la
-fotografía, sólo sobre una de plato, y nunca más visible que ella. La segunda
-reseña sobre una misma fotografía se rechaza con la que ya existe, de modo que
-la interfaz pueda llevar hasta ella.
+El orden es el mismo de siempre —validar, almacenar el objeto, abrir la
+transacción— y ahora está escrito una vez.
 
 El plato es una propiedad de la fotografía y no de la reseña. Mantenerlo en
 dos tablas garantizaría que en algún momento discrepen, y la fotografía es lo

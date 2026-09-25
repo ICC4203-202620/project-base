@@ -639,43 +639,25 @@ def test_restaurant_payload_validation_uses_fastapi_format():
     assert isinstance(response.json()["detail"], list)
 
 
-def test_publishing_a_photograph_and_reviewing_it_with_postgresql(tmp_path):
+def test_review_upload_persists_metadata_and_local_photo(tmp_path):
     client = authenticated_client()
     storage = LocalMediaStorage(tmp_path)
     app.dependency_overrides[get_media_storage] = lambda: storage
     image = BytesIO()
     Image.new("RGB", (2, 2), color="tomato").save(image, format="PNG")
     try:
-        # First the photograph, which is what gets published.
-        published = client.post(
-            "/api/v1/photos",
-            headers={"Origin": "http://testserver"},
-            data={
-                "restaurant_id": str(RESTAURANTS[0].id),
-                "kind": "dish",
-                "dish_name": "Ceviche docente",
-                "visibility": "public",
-            },
-            files={"photo": ("dish.png", image.getvalue(), "image/png")},
-        )
-        assert published.status_code == 201
-        photo_payload = published.json()
-
-        # Then the review of it, which is another action.
         response = client.post(
             "/api/v1/reviews",
             headers={"Origin": "http://testserver"},
-            json={
-                "photo_id": photo_payload["id"],
-                "rating": 5,
+            data={
+                "restaurant_id": str(RESTAURANTS[0].id),
+                "dish_name": "Ceviche docente",
                 "text": "Reseña creada por la prueba de integración",
-                "visibility": "public",
             },
+            files={"photo": ("dish.png", image.getvalue(), "image/png")},
         )
         assert response.status_code == 201
         payload = response.json()
-        assert payload["rating"] == 5
-        assert payload["dish_name"] == "Ceviche docente"
 
         with engine.connect() as connection:
             persisted_review = (
@@ -684,33 +666,20 @@ def test_publishing_a_photograph_and_reviewing_it_with_postgresql(tmp_path):
                 .one()
             )
             persisted_photo = (
-                connection.execute(select(photos).where(photos.c.id == UUID(photo_payload["id"])))
+                connection.execute(
+                    select(photos).where(photos.c.id == UUID(payload["photo"]["id"]))
+                )
                 .mappings()
                 .one()
             )
         assert persisted_review["photo_id"] == persisted_photo["id"]
         assert persisted_review["visibility"] == "public"
-        assert persisted_photo["dish_name"] == "Ceviche docente"
         assert (tmp_path / persisted_photo["storage_key"]).is_file()
 
-        downloaded = client.get(photo_payload["content_url"])
+        downloaded = client.get(payload["photo"]["content_url"])
         assert downloaded.status_code == 200
         assert downloaded.headers["content-type"] == "image/png"
         assert downloaded.content == image.getvalue()
-
-        # A second review over the same photograph names the first.
-        duplicate = client.post(
-            "/api/v1/reviews",
-            headers={"Origin": "http://testserver"},
-            json={
-                "photo_id": photo_payload["id"],
-                "rating": 3,
-                "text": "Otra opinión",
-                "visibility": "public",
-            },
-        )
-        assert duplicate.status_code == 409
-        assert duplicate.json()["detail"]["review"]["id"] == payload["id"]
     finally:
         app.dependency_overrides.clear()
 
