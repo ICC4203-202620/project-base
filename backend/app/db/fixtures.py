@@ -155,6 +155,17 @@ USER_FOLLOWS = (
         UUID("00000000-0000-4000-8000-000000000001"),
         UUID("00000000-0000-4000-8000-000000000002"),
     ),
+    # El usuario de demostración sigue a tres personas, y sólo dos de ellas
+    # dejaron una visita pública en el restaurante uno: el bloque de personas
+    # conocidas se distingue así de «todo el que estuvo ahí».
+    (
+        UUID("00000000-0000-4000-8000-000000000001"),
+        UUID("00000000-0000-4000-8000-000000000004"),
+    ),
+    (
+        UUID("00000000-0000-4000-8000-000000000001"),
+        UUID("00000000-0000-4000-8000-000000000005"),
+    ),
 )
 RESTAURANT_FOLLOWS = (
     (
@@ -262,6 +273,37 @@ VISIT_FIXTURES = (
         datetime(2026, 8, 28, 14, tzinfo=UTC),
         datetime(2026, 8, 28, 14, tzinfo=UTC),
         "public",
+    ),
+    # La segunda visita pública de la misma persona al restaurante uno: en el
+    # bloque de personas conocidas aparece una vez, con la más reciente de las
+    # dos, que es la de más arriba.
+    VisitFixture(
+        UUID("50000000-0000-4000-8000-000000000006"),
+        DEMO_USERS[1].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        datetime(2026, 8, 5, 12, tzinfo=UTC),
+        datetime(2026, 8, 5, 12, tzinfo=UTC),
+        "public",
+    ),
+    # La segunda persona seguida que estuvo ahí, para que el bloque tenga un
+    # orden que comprobar.
+    VisitFixture(
+        UUID("50000000-0000-4000-8000-000000000007"),
+        DEMO_USERS[3].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        datetime(2026, 8, 14, 19, tzinfo=UTC),
+        datetime(2026, 8, 14, 19, tzinfo=UTC),
+        "public",
+    ),
+    # Privada, de una tercera persona seguida, y la más reciente de todas: si
+    # el bloque dejara escapar una visita privada, encabezaría la lista.
+    VisitFixture(
+        UUID("50000000-0000-4000-8000-000000000008"),
+        DEMO_USERS[4].id,
+        UUID("20000000-0000-4000-8000-000000000001"),
+        datetime(2026, 8, 30, 20, tzinfo=UTC),
+        datetime(2026, 8, 30, 20, tzinfo=UTC),
+        "private",
     ),
 )
 

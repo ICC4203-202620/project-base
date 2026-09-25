@@ -8,10 +8,11 @@ from typing import Any, cast
 from unicodedata import combining, normalize
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, func, insert, or_, select, update
+from sqlalchemy import and_, delete, desc, func, insert, or_, select, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from app.core.countries import country_name
 from app.db.retry import run_transaction_with_retry
 from app.db.schema import (
     cuisine_styles,
@@ -20,14 +21,23 @@ from app.db.schema import (
     restaurant_follows,
     restaurants,
     reviews,
+    user_follows,
+    users,
     visits,
 )
 from app.db.session import engine
-from app.services.cursors import decode_cursor, encode_cursor
+from app.services.cursors import decode_cursor, encode_cursor, utc_timestamp
+from app.services.users import Nationality
 from app.services.visibility import PUBLIC, visible_to
 
 MINIMUM_SEARCH_LENGTH = 2
 LIKE_ESCAPE = "\\"
+
+# How many known visitors the restaurant page names. The block answers whether
+# somebody the viewer trusts was there, and a list of ten already answers it;
+# past that the total says how many more there are and the interface writes
+# «y N más». It is not a page, so it carries no cursor.
+MAXIMUM_KNOWN_VISITORS = 10
 
 # A map view of a city spans fractions of a degree. A hundred square degrees is
 # roughly a thousand kilometres on a side at these latitudes: far more than any
@@ -188,6 +198,30 @@ class RestaurantViewerRelationship:
 
 
 @dataclass(frozen=True)
+class KnownVisitor:
+    """Somebody the viewer follows who was at this restaurant.
+
+    The shape is the one #46 defined for a person, plus the date the block
+    exists to show. One entry per person and not per visit: whoever goes every
+    week would otherwise fill the block on their own.
+    """
+
+    id: UUID
+    handle: str
+    name: str
+    nationality: Nationality
+    last_visit_at: datetime
+
+
+@dataclass(frozen=True)
+class KnownVisitors:
+    # Every person the viewer follows with a public visit here, which may be
+    # more than the block names.
+    total: int
+    items: tuple[KnownVisitor, ...]
+
+
+@dataclass(frozen=True)
 class RestaurantDetail:
     id: UUID
     name: str
@@ -200,6 +234,7 @@ class RestaurantDetail:
     counters: RestaurantCounters
     ratings: RatingSummary
     viewer: RestaurantViewerRelationship
+    known_visitors: KnownVisitors
 
 
 @dataclass(frozen=True)
@@ -768,6 +803,71 @@ def _restaurant_counters_statement(restaurant_id: UUID, viewer_id: UUID):
     )
 
 
+def _known_visitors_statement(restaurant_id: UUID, viewer_id: UUID):
+    """Who, among the people the viewer follows, was publicly at this restaurant.
+
+    Grouped by person in one pass: the alternative — a lookup per followed
+    account — would make the page slower for whoever follows more people,
+    which is exactly the person the block is written for.
+
+    The viewer never follows themselves, so their own visits stay out without
+    a condition saying so.
+    """
+    followed = select(user_follows.c.followed_id).where(user_follows.c.follower_id == viewer_id)
+    visitors = (
+        select(
+            visits.c.author_id.label("author_id"),
+            func.max(visits.c.occurred_at).label("last_visit_at"),
+        )
+        .where(
+            visits.c.restaurant_id == restaurant_id,
+            # Only public ones, and not even for their author: the block talks
+            # about what somebody chose to make known.
+            visits.c.visibility == PUBLIC,
+            visits.c.author_id.in_(followed),
+        )
+        .group_by(visits.c.author_id)
+        .subquery()
+    )
+    return (
+        select(
+            users.c.id,
+            users.c.handle,
+            users.c.name,
+            users.c.nationality,
+            visitors.c.last_visit_at,
+            # Counted over the same grouping that produced these rows, before
+            # the limit cuts them, so the total costs no second pass.
+            func.count().over().label("total"),
+        )
+        .select_from(visitors.join(users, users.c.id == visitors.c.author_id))
+        .order_by(desc(visitors.c.last_visit_at), users.c.id)
+        .limit(MAXIMUM_KNOWN_VISITORS)
+    )
+
+
+def _known_visitors(connection: Connection, restaurant_id: UUID, viewer_id: UUID) -> KnownVisitors:
+    rows = connection.execute(_known_visitors_statement(restaurant_id, viewer_id)).mappings().all()
+    return KnownVisitors(
+        # No rows means nobody, which is a state of the block and not an
+        # absence of it.
+        total=rows[0]["total"] if rows else 0,
+        items=tuple(
+            KnownVisitor(
+                id=row["id"],
+                handle=row["handle"],
+                name=row["name"],
+                nationality=Nationality(
+                    code=row["nationality"],
+                    name=country_name(row["nationality"]),
+                ),
+                last_visit_at=utc_timestamp(row["last_visit_at"]),
+            )
+            for row in rows
+        ),
+    )
+
+
 def get_restaurant_detail(restaurant_id: UUID, *, viewer_id: UUID) -> RestaurantDetail:
     """The restaurant page: everything it needs to present itself, minus the gallery.
 
@@ -784,6 +884,7 @@ def get_restaurant_detail(restaurant_id: UUID, *, viewer_id: UUID) -> Restaurant
                 .one()
             )
             ratings = _evaluation_summary(connection, restaurant_id)
+            known_visitors = _known_visitors(connection, restaurant_id, viewer_id)
     except RestaurantNotFoundError:
         raise
     except SQLAlchemyError as error:
@@ -809,6 +910,7 @@ def get_restaurant_detail(restaurant_id: UUID, *, viewer_id: UUID) -> Restaurant
         ),
         ratings=ratings,
         viewer=RestaurantViewerRelationship(following=bool(counters["viewer_follows"])),
+        known_visitors=known_visitors,
     )
 
 

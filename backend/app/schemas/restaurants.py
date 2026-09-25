@@ -11,6 +11,8 @@ from pydantic import (
     model_validator,
 )
 
+from app.schemas.activity import UserSummary
+
 RestaurantName = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=120),
@@ -173,12 +175,37 @@ class RestaurantViewerResponse(BaseModel):
     following: bool
 
 
+class KnownVisitorResponse(UserSummary):
+    """The shared summary of a person, plus when they were last here.
+
+    Flat, like the result of the user search: a person and the one thing the
+    screen shows next to them, and not a person wrapped in an object.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    # When they were there, which is what the épica asks the page to say. Not
+    # when they recorded it.
+    last_visit_at: datetime
+
+
+class KnownVisitorsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    # Everybody the viewer follows with a public visit here, which may exceed
+    # what `items` names.
+    total: int
+    items: list[KnownVisitorResponse]
+
+
 class RestaurantDetailResponse(RestaurantResponse):
-    # These three depend on who is asking: a counter only reports what that
-    # person could also list.
+    # These four depend on who is asking: a counter only reports what that
+    # person could also list, and the known visitors are the people that
+    # particular viewer follows.
     counters: RestaurantCountersResponse
     ratings: RatingSummaryResponse
     viewer: RestaurantViewerResponse
+    known_visitors: KnownVisitorsResponse
 
 
 class RestaurantPhotoAuthorResponse(BaseModel):

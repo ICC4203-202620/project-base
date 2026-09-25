@@ -167,7 +167,7 @@ slugs escritos a mano.
 #### Ficha del restaurante
 
 `GET /api/v1/restaurants/{id}` es la pantalla donde converge el resto de la
-aplicación. Conserva los campos que ya devolvía y agrega tres bloques que
+aplicación. Conserva los campos que ya devolvía y agrega cuatro bloques que
 **dependen de quién pregunta**:
 
 * `counters`: fotografías, reseñas, evaluaciones, visitas y seguidores. Cada
@@ -179,6 +179,35 @@ aplicación. Conserva los campos que ya devolvía y agrega tres bloques que
   lo lea hoy siga funcionando cuando lleguen los números.
 * `viewer`: si el observador sigue al restaurante, para que la interfaz decida
   entre «Seguir» y «Siguiendo» sin una segunda solicitud.
+* `known_visitors`: quiénes, de las personas que el observador sigue,
+  estuvieron ahí y cuándo.
+
+##### Personas conocidas que estuvieron ahí
+
+`known_visitors` responde `{ total, items }`. Cada item es el mismo **resumen
+de persona** que devuelven un perfil y la búsqueda —`id`, `handle`, `name` y
+`nationality`— más `last_visit_at`, la fecha de su visita pública más
+reciente a ese restaurante.
+
+Cuenta **personas, no visitas**: quien fue diez veces aparece una sola vez,
+con la última. De otro modo una sola persona llenaría el bloque entero.
+
+Sólo entran **visitas públicas**, y ni siquiera para su autor: el bloque habla
+de lo que alguien eligió dar a conocer. Tampoco entran las visitas del propio
+observador —nadie se sigue a sí mismo— ni las de quienes no sigue, aunque sean
+públicas y en ese mismo restaurante.
+
+**No se pagina.** El orden es por `last_visit_at` descendente y la lista se
+corta en diez; `total` cuenta a todas las personas, de modo que una lista
+cortada igual dice cuántas hay y la interfaz escribe «y N más». Lo que la
+épica pide es saber si alguien conocido estuvo, no auditar quiénes.
+
+Para un observador que no sigue a nadie que haya estado ahí, `total` es cero y
+`items` viene vacío: es un estado del bloque y no su ausencia.
+
+Va dentro de la ficha y no en un endpoint aparte porque está acotado de
+antemano: su costo no crece con el historial del restaurante ni con el número
+de personas que el observador sigue. Es la diferencia con la galería.
 
 **La galería no está en la ficha.** Crece sin límite con la actividad del
 restaurante, y la pantalla la recorre por separado con

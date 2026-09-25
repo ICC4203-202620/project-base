@@ -256,6 +256,16 @@ Index(
     visits.c.id,
 )
 Index("ix_visits_visibility_created_id", visits.c.visibility, visits.c.created_at, visits.c.id)
+# The restaurant page groups the public visits of the people the viewer
+# follows. Reading them from this index alone keeps that block from scanning
+# the whole history of a busy restaurant.
+Index(
+    "ix_visits_restaurant_public_author",
+    visits.c.restaurant_id,
+    visits.c.visibility,
+    visits.c.author_id,
+    visits.c.occurred_at,
+)
 
 reviews = Table(
     "reviews",
