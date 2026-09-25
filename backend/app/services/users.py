@@ -15,10 +15,12 @@ from functools import reduce
 from operator import add
 from uuid import UUID
 
-from sqlalchemy import and_, desc, func, or_, select, union_all
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import and_, delete, desc, func, insert, or_, select, union_all
+from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.core.countries import country_name
+from app.db.retry import run_transaction_with_retry
 from app.db.schema import user_follows, users
 from app.db.session import engine
 from app.services.activity import ACTIVITY_SOURCES, ActivitySource, hydrate
@@ -55,6 +57,10 @@ def _escaped(term: str) -> str:
 
 class SearchTermTooShortError(Exception):
     """A one-character term would return the whole register of people."""
+
+
+class SelfFollowError(Exception):
+    """Nobody follows themself."""
 
 
 # The same floor the restaurant search uses, so one search behaviour exists in
@@ -351,3 +357,70 @@ def search_users(
         ),
         next_cursor=(encode_cursor(rows[-1]["handle"], rows[-1]["id"]) if has_next else None),
     )
+
+
+def _resolve_handle(connection, handle: str) -> UUID:
+    user_id = connection.scalar(select(users.c.id).where(users.c.handle == normalize_handle(handle)))
+    if user_id is None:
+        raise UserNotFoundError
+    return user_id
+
+
+def follow_user(*, follower_id: UUID, handle: str) -> None:
+    """Start following a person.
+
+    Idempotent on purpose: the button of the interface declares a state — "I
+    want to follow this person" — rather than accumulating an event. Following
+    someone already followed is not a conflict, and answering 409 would make
+    the interface treat a repeated tap as an error, which on a phone with an
+    intermittent connection is a frequent case.
+    """
+
+    def persist(connection: Connection) -> None:
+        followed_id = _resolve_handle(connection, handle)
+        if followed_id == follower_id:
+            # The schema forbids it too; rejecting it here keeps the rule
+            # testable without leaning on the database error.
+            raise SelfFollowError
+        already = connection.scalar(
+            select(user_follows.c.follower_id).where(
+                user_follows.c.follower_id == follower_id,
+                user_follows.c.followed_id == followed_id,
+            )
+        )
+        if already:
+            return
+        connection.execute(
+            insert(user_follows).values(follower_id=follower_id, followed_id=followed_id)
+        )
+
+    try:
+        run_transaction_with_retry(engine, persist)
+    except (UserNotFoundError, SelfFollowError):
+        raise
+    except IntegrityError:
+        # Two simultaneous requests: the state the caller asked for is the one
+        # that ended up written, which is what idempotent means here.
+        return
+    except SQLAlchemyError as error:
+        raise UserStoreError from error
+
+
+def unfollow_user(*, follower_id: UUID, handle: str) -> None:
+    """Stop following a person, whether or not one was following them."""
+
+    def persist(connection: Connection) -> None:
+        followed_id = _resolve_handle(connection, handle)
+        connection.execute(
+            delete(user_follows).where(
+                user_follows.c.follower_id == follower_id,
+                user_follows.c.followed_id == followed_id,
+            )
+        )
+
+    try:
+        run_transaction_with_retry(engine, persist)
+    except UserNotFoundError:
+        raise
+    except SQLAlchemyError as error:
+        raise UserStoreError from error

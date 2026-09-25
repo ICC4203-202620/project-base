@@ -18,6 +18,7 @@ from app.db.fixtures import (
 )
 from app.db.schema import metadata, users
 from app.main import app
+from app.services import feed as feed_service
 from app.services import users as user_service
 from app.services.auth import AuthenticatedSession
 from app.services.cursors import InvalidCursorError
@@ -46,6 +47,7 @@ def seeded_database(monkeypatch):
     metadata.create_all(database)
     monkeypatch.setattr(seed_module, "engine", database)
     monkeypatch.setattr(user_service, "engine", database)
+    monkeypatch.setattr(feed_service, "engine", database)
     monkeypatch.setattr(seed_module.settings, "seed_demo_data", True)
     monkeypatch.setattr(seed_module, "hash_password", lambda password: "test-password-hash")
     seed_module.seed(storage=FixtureStorage())
@@ -439,3 +441,141 @@ def test_the_search_endpoint_answers_the_contract(seeded_database):
 
 def test_the_search_requires_a_session():
     assert TestClient(app).get("/api/v1/users?q=demo").status_code == 401
+
+
+# --- Following and unfollowing ------------------------------------------------
+
+
+def follow(handle, follower=OTHER):
+    return user_service.follow_user(follower_id=follower.id, handle=handle)
+
+
+def unfollow(handle, follower=OTHER):
+    return user_service.unfollow_user(follower_id=follower.id, handle=handle)
+
+
+def follows(follower, followed):
+    return user_service.get_profile(followed.handle, viewer_id=follower.id).viewer.following
+
+
+def test_following_and_unfollowing_are_reversible(seeded_database):
+    del seeded_database
+
+    assert follows(OTHER, OWNER) is False
+    follow(OWNER.handle)
+    assert follows(OTHER, OWNER) is True
+    unfollow(OWNER.handle)
+    assert follows(OTHER, OWNER) is False
+
+
+def test_both_operations_are_idempotent(seeded_database):
+    del seeded_database
+
+    follow(OWNER.handle)
+    follow(OWNER.handle)
+    assert follows(OTHER, OWNER) is True
+
+    unfollow(OWNER.handle)
+    unfollow(OWNER.handle)
+    assert follows(OTHER, OWNER) is False
+
+
+def test_the_handle_is_read_however_it_is_written(seeded_database):
+    del seeded_database
+
+    follow(f"@{OWNER.handle.upper()}")
+
+    assert follows(OTHER, OWNER) is True
+
+
+def test_nobody_follows_themself(seeded_database):
+    del seeded_database
+
+    with pytest.raises(user_service.SelfFollowError):
+        follow(OTHER.handle)
+
+
+def test_an_unknown_handle_is_not_a_silent_success(seeded_database):
+    del seeded_database
+
+    with pytest.raises(user_service.UserNotFoundError):
+        follow("nadie_aqui")
+    with pytest.raises(user_service.UserNotFoundError):
+        unfollow("nadie_aqui")
+
+
+def test_following_changes_what_the_feed_shows(seeded_database):
+    del seeded_database
+    # `empty` follows nobody, so its feed starts empty.
+    lonely = DEMO_USERS[2]
+
+    before = feed_service.get_feed(lonely.id, limit=50)
+    user_service.follow_user(follower_id=lonely.id, handle=AUTHOR.handle)
+    after = feed_service.get_feed(lonely.id, limit=50)
+
+    assert before["items"] == []
+    assert after["items"]
+
+    user_service.unfollow_user(follower_id=lonely.id, handle=AUTHOR.handle)
+    assert feed_service.get_feed(lonely.id, limit=50)["items"] == []
+
+
+def test_the_search_results_reflect_the_change(seeded_database):
+    del seeded_database
+
+    follow(OWNER.handle)
+    found = next(
+        result for result in search("demo", viewer=OTHER).items if result.handle == OWNER.handle
+    )
+
+    assert found.following is True
+
+
+def test_follow_failures_are_reported_as_store_errors(seeded_database, monkeypatch):
+    del seeded_database
+
+    class BrokenEngine:
+        def begin(self):
+            raise SQLAlchemyError("database unavailable")
+
+    monkeypatch.setattr(user_service, "engine", BrokenEngine())
+    with pytest.raises(user_service.UserStoreError):
+        follow(OWNER.handle)
+    with pytest.raises(user_service.UserStoreError):
+        unfollow(OWNER.handle)
+
+
+def test_the_endpoints_answer_204_whatever_the_previous_state(seeded_database):
+    del seeded_database
+    app.dependency_overrides[get_current_session] = lambda: session(1)
+    client = TestClient(app)
+    origin = {"Origin": "http://testserver"}
+    try:
+        first = client.put(f"/api/v1/users/{OWNER.handle}/follow", headers=origin)
+        repeated = client.put(f"/api/v1/users/{OWNER.handle}/follow", headers=origin)
+        profile = client.get(f"/api/v1/users/{OWNER.handle}").json()
+        removed = client.delete(f"/api/v1/users/{OWNER.handle}/follow", headers=origin)
+        removed_again = client.delete(f"/api/v1/users/{OWNER.handle}/follow", headers=origin)
+        oneself = client.put(f"/api/v1/users/{AUTHOR.handle}/follow", headers=origin)
+        unknown = client.put("/api/v1/users/nadie_aqui/follow", headers=origin)
+        untrusted = client.put(
+            f"/api/v1/users/{OWNER.handle}/follow",
+            headers={"Origin": "http://evil.example"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == repeated.status_code == 204
+    assert first.content == b""
+    assert profile["viewer"]["following"] is True
+    assert removed.status_code == removed_again.status_code == 204
+    assert oneself.status_code == 422
+    assert unknown.status_code == 404
+    assert untrusted.status_code == 403
+
+
+def test_the_follow_routes_require_a_session():
+    client = TestClient(app)
+
+    assert client.put(f"/api/v1/users/{OWNER.handle}/follow").status_code == 401
+    assert client.delete(f"/api/v1/users/{OWNER.handle}/follow").status_code == 401
