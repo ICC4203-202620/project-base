@@ -589,6 +589,17 @@ La deduplicación por doble seguimiento sobrevive al cambio porque la condición
 sigue siendo una unión lógica dentro de cada origen, y no dos listas
 concatenadas.
 
+El feed excluye además la actividad del propio observador. No es una
+optimización: es la misma regla que aplican las notificaciones, donde el autor
+siempre queda fuera, y responder de dos maneras a «quién se entera de esto»
+sería una incoherencia que el usuario notaría. Lo propio se lee en el perfil.
+
+El costo de una página no depende de cuántos items tenga: una consulta une las
+claves de todos los orígenes, y después se leen las clases presentes, una
+consulta por clase —la evaluación agrega dos más, agrupadas, para sus
+calificaciones y sus fotografías—. Hay una prueba que lo fija comparando el
+número de consultas con el número de items.
+
 ### Los dos instantes del envelope
 
 `app/services/activity.py` construye el envelope que comparten el feed y el

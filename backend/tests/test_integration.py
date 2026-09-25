@@ -821,6 +821,31 @@ def test_profile_and_activity_apply_visibility_with_postgresql():
     assert owner_client.get(f"/api/v1/users/{owner.handle}/activity?cursor=roto").status_code == 422
 
 
+def test_the_feed_leaves_out_what_the_viewer_published_with_postgresql():
+    client = authenticated_client()
+    owner = DEMO_USERS[0]
+
+    feed = client.get("/api/v1/feed?limit=50").json()
+    profile = client.get(f"/api/v1/users/{owner.handle}/activity?limit=50").json()
+
+    def author_of(item):
+        return item[item["type"]]["author"]["id"]
+
+    assert feed["items"]
+    assert all(author_of(item) != str(owner.id) for item in feed["items"])
+    # And what it leaves out is in their profile, which is where it belongs.
+    assert any(author_of(item) == str(owner.id) for item in profile["items"])
+
+    published = [item["published_at"] for item in feed["items"]]
+    assert published == sorted(published, reverse=True)
+    assert {item["type"] for item in feed["items"]} == {
+        "review",
+        "visit",
+        "photo",
+        "evaluation",
+    }
+
+
 def test_seeded_feed_and_review_detail_work_with_postgresql():
     client = authenticated_client()
 

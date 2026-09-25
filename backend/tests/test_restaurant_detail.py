@@ -88,8 +88,8 @@ def test_the_page_carries_what_the_screen_needs_without_the_gallery(seeded_datab
         criterion.criterion: criterion.average for criterion in page.ratings.criteria
     } == {"comida": 4.0, "servicio": 3.0, "ambiente": 4.5, "precio-calidad": 3.5}
     assert page.counters.evaluations == page.ratings.total
-    # Two public check-ins in the seed, by two different people.
-    assert page.counters.visits == 2
+    # Three public check-ins in the seed, by three different people.
+    assert page.counters.visits == 3
     assert not hasattr(page, "photos")
 
 
