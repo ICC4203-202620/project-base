@@ -162,7 +162,7 @@ def test_handle_is_resolved_however_it_is_written(seeded_database):
         profile = user_service.get_profile(written, viewer_id=OWNER.id)
         page = user_service.get_activity(written, viewer_id=OWNER.id, limit=20)
         assert profile.handle == AUTHOR.handle, written
-        assert len(page["items"]) == 7, written
+        assert len(page["items"]) == 8, written
 
 
 def test_unknown_handle_is_not_an_empty_profile(seeded_database):
@@ -212,7 +212,7 @@ def test_follow_state_is_reported_in_both_directions(seeded_database):
         True,
     )
     assert seen_by_follower.counters.followers == 1
-    assert own.counters.following == 1
+    assert own.counters.following == 3
 
 
 def test_activity_pages_are_stable_and_reject_a_foreign_cursor(seeded_database):
@@ -227,6 +227,7 @@ def test_activity_pages_are_stable_and_reject_a_foreign_cursor(seeded_database):
         REVIEW_FIXTURES[0].id,
         VISIT_FIXTURES[0].id,
         REVIEW_FIXTURES[1].id,
+        VISIT_FIXTURES[5].id,
         VISIT_FIXTURES[3].id,
     ]
     seen = []
@@ -306,8 +307,8 @@ def test_profile_response_shape_is_what_the_interface_needs(seeded_database, mon
     payload = response.json()
     assert payload["handle"] == AUTHOR.handle
     assert payload["nationality"] == {"code": "AR", "name": "Argentina"}
-    # Seven acts, not nine rows: the three menu photographs are one publication.
-    assert payload["counters"] == {"activity": 7, "followers": 1, "following": 0}
+    # Eight acts, not ten rows: the three menu photographs are one publication.
+    assert payload["counters"] == {"activity": 8, "followers": 1, "following": 0}
     assert payload["viewer"] == {"is_self": False, "following": True, "followed_by": False}
 
 

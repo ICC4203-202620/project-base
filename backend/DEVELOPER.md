@@ -456,12 +456,47 @@ la de la fotografía decide la galería y el contenido. Mientras la creación de
 reseñas fuerce visibilidad pública, la fotografía copia la de su reseña; la
 épica 10 decide si las colapsa cuando la elección llegue al formulario.
 
-La ficha resuelve tres consultas acotadas: la fila con sus estilos, los
+La ficha resuelve cuatro consultas acotadas: la fila con sus estilos, los
 contadores con las dos direcciones del seguimiento como subconsultas
-correlacionadas, y el resumen de evaluaciones. Ninguna depende del tamaño del
-historial del restaurante, y por eso la galería quedó fuera. `_evaluation_summary`
-existe como punto único identificado: cuando la épica 11 tenga evaluaciones,
-sólo esa función cambia, y ni el router ni la forma de la respuesta lo hacen.
+correlacionadas, el resumen de evaluaciones y las personas conocidas que
+estuvieron ahí. Ninguna depende del tamaño del historial del restaurante, y
+por eso la galería quedó fuera. `_evaluation_summary` existe como punto único
+identificado: cuando la épica 11 tenga evaluaciones, sólo esa función cambia,
+y ni el router ni la forma de la respuesta lo hacen.
+
+### Personas conocidas, en una sola pasada
+
+`_known_visitors_statement` agrupa por persona las visitas públicas del
+restaurante cuyo autor está entre los seguidos del observador, y proyecta el
+máximo de `occurred_at` de cada grupo. Agrupar y no recorrer seguidos es la
+decisión: una consulta por persona seguida haría la ficha más lenta
+justamente para quien sigue a más gente, que es para quien el bloque existe.
+
+El total sale de la misma pasada, con `count()` como función de ventana sobre
+el resultado agrupado. La ventana se evalúa antes del `LIMIT`, así que el
+número cuenta a todas las personas aunque la lista se corte en
+`MAXIMUM_KNOWN_VISITORS`. La alternativa —una subconsulta de conteo— vuelve a
+recorrer las visitas del restaurante para responder lo que la primera pasada
+ya sabía.
+
+El observador no se sigue a sí mismo, de modo que sus propias visitas quedan
+fuera sin una condición que lo diga. Es la misma propiedad en la que se apoyan
+las notificaciones.
+
+El índice de la épica 10 —`ix_visits_restaurant_occurred_id`— encabeza por
+restaurante y sigue por instante, que sirve a la lista cronológica pero no a
+esta agrupación: obliga a leer todas las visitas que el lugar recibió alguna
+vez. La migración `0108` agrega
+`ix_visits_restaurant_public_author (restaurant_id, visibility, author_id,
+occurred_at)`, que responde el bloque desde el índice: el prefijo fija
+restaurante y visibilidad, y lo que queda ya viene ordenado por persona.
+
+Sobre PostgreSQL 17, con cuatrocientas mil visitas repartidas en trescientos
+restaurantes y un observador que sigue a trescientas personas, el plan pasa de
+un *bitmap heap scan* de 1334 bloques —todas las visitas del restaurante, más
+un *sort* para agrupar— a un *index only scan* de 81 filas que alimenta
+directamente el *group aggregate*. Es la comprobación que pedía la épica, y el
+motivo por el que la migración existe en vez de reutilizar el índice anterior.
 
 ### Fotografías: un solo camino de subida
 

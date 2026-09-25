@@ -846,6 +846,27 @@ def test_the_feed_leaves_out_what_the_viewer_published_with_postgresql():
     }
 
 
+def test_the_restaurant_page_names_known_visitors_with_postgresql():
+    client = authenticated_client()
+    restaurant = RESTAURANTS[0].id
+
+    page = client.get(f"/api/v1/restaurants/{restaurant}").json()
+    block = page["known_visitors"]
+
+    # Grouping by person and counting over the grouping are the two things
+    # SQLite could answer differently from PostgreSQL.
+    assert block["total"] == len(block["items"]) == 2
+    handles = [visitor["handle"] for visitor in block["items"]]
+    assert handles == [DEMO_USERS[1].handle, DEMO_USERS[3].handle]
+    assert len(handles) == len(set(handles))
+    dates = [visitor["last_visit_at"] for visitor in block["items"]]
+    assert dates == sorted(dates, reverse=True)
+    # Their own public visit here is not in the block, and the private visit
+    # of somebody they follow is not either.
+    assert str(DEMO_USERS[0].id) not in {visitor["id"] for visitor in block["items"]}
+    assert DEMO_USERS[4].handle not in handles
+
+
 def test_seeded_feed_and_review_detail_work_with_postgresql():
     client = authenticated_client()
 

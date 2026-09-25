@@ -90,6 +90,8 @@ EXPECTED_FEED = [
     VISIT_FIXTURES[0].id,
     REVIEW_FIXTURES[1].id,
     REVIEW_FIXTURES[3].id,
+    VISIT_FIXTURES[6].id,
+    VISIT_FIXTURES[5].id,
 ]
 
 

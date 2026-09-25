@@ -227,9 +227,13 @@ def test_seed_maps_user_id_and_email_collisions_to_persisted_ids(monkeypatch, fi
             connection.scalar(select(users.c.handle).where(users.c.email == second.email))
             == "@existingemail"
         )
-        assert connection.execute(
-            select(user_follows.c.follower_id, user_follows.c.followed_id)
-        ).one() == (first.id, second_persisted_id)
+        persisted_follows = set(
+            connection.execute(select(user_follows.c.follower_id, user_follows.c.followed_id))
+        )
+        assert len(persisted_follows) == len(USER_FOLLOWS)
+        # The follow whose followed account collided by email points at the
+        # row that was already there, not at the fixture UUID.
+        assert (first.id, second_persisted_id) in persisted_follows
         followed_review_authors = set(
             connection.scalars(
                 select(reviews.c.author_id).where(

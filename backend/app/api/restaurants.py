@@ -301,8 +301,12 @@ def create(payload: RestaurantCreate, response: Response) -> restaurant_service.
     responses={
         200: {
             "description": (
-                "`counters` and `viewer` depend on who is asking: a counter only reports what "
-                "that person could also list, and `ratings` stays empty until épica 11 fills it. "
+                "`counters`, `viewer` and `known_visitors` depend on who is asking: a counter "
+                "only reports what that person could also list. `known_visitors` names the "
+                "people the session follows who left a public visit here, one entry per person "
+                "with their most recent one, ordered by that date and cut at "
+                f"{restaurant_service.MAXIMUM_KNOWN_VISITORS}; `total` counts them all, so a "
+                "block that is cut still says how many there are. It does not paginate. "
                 "The gallery is not here: it has its own endpoint because it grows with the "
                 "activity of the restaurant."
             )
@@ -343,9 +347,7 @@ def follow(
     session: Annotated[AuthenticatedSession, Depends(get_current_session)],
 ) -> None:
     try:
-        restaurant_service.follow_restaurant(
-            user_id=session.user_id, restaurant_id=restaurant_id
-        )
+        restaurant_service.follow_restaurant(user_id=session.user_id, restaurant_id=restaurant_id)
     except (
         restaurant_service.RestaurantNotFoundError,
         restaurant_service.RestaurantStoreError,
@@ -368,9 +370,7 @@ def unfollow(
     session: Annotated[AuthenticatedSession, Depends(get_current_session)],
 ) -> None:
     try:
-        restaurant_service.unfollow_restaurant(
-            user_id=session.user_id, restaurant_id=restaurant_id
-        )
+        restaurant_service.unfollow_restaurant(user_id=session.user_id, restaurant_id=restaurant_id)
     except (
         restaurant_service.RestaurantNotFoundError,
         restaurant_service.RestaurantStoreError,
