@@ -20,6 +20,12 @@ consumo de una colección protegida:
 No incluye `manifest`, `service worker`, soporte offline ni instalación como
 PWA. Esos elementos forman parte del trabajo de los grupos en la entrega 2.
 
+**El contrato completo de la API, organizado por épica, está en
+[backend/docs/api.md](../backend/docs/api.md).** Ahí está qué recibe y qué
+devuelve cada endpoint, y las decisiones del backend que cambian lo que el
+cliente tiene que escribir: la paginación por cursor, la regla de visibilidad,
+las formas que se repiten y el reparto entre `404` y `422`.
+
 ## Contrato de feed para la Entrega 2
 
 Después de confirmar la sesión, la PWA obtiene `GET /api/v1/feed`. La respuesta

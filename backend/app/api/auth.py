@@ -128,6 +128,17 @@ def _delete_session_cookie(response: Response) -> None:
     "/login",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_trusted_origin)],
+    summary="Open a session and issue the cookie",
+    responses={
+        204: {
+            "description": (
+                "The session travels in an HttpOnly cookie, so the frontend cannot read it and "
+                "does not need to: it sends every request with credentials included."
+            )
+        },
+        401: {"description": "The email or the password do not match an account"},
+        503: {"description": "The session store did not answer"},
+    },
 )
 def login(payload: LoginRequest, response: Response) -> None:
     try:
@@ -155,7 +166,16 @@ def login(payload: LoginRequest, response: Response) -> None:
     response_model=SessionResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_trusted_origin)],
+    summary="Create an account, and leave it signed in",
     responses={
+        201: {
+            "description": (
+                "The same body as GET /auth/session, and the cookie: whoever registers is "
+                "authenticated in the same operation, with no second trip that would force the "
+                "client to keep the password. The handle loses a leading @ and is lowercased "
+                "before it is stored."
+            )
+        },
         409: {
             "description": (
                 "The email or the handle already belongs to an account. "
@@ -163,6 +183,7 @@ def login(payload: LoginRequest, response: Response) -> None:
             )
         },
         422: {"description": "Malformed field, weak password or unknown country code"},
+        503: {"description": "The account store did not answer"},
     },
 )
 def register(payload: RegisterRequest, response: Response) -> SessionResponse:
@@ -198,7 +219,15 @@ def register(payload: RegisterRequest, response: Response) -> SessionResponse:
     return _session_response(issued_session.session)
 
 
-@router.get("/session", response_model=SessionResponse)
+@router.get(
+    "/session",
+    response_model=SessionResponse,
+    summary="Who is connected, and until when",
+    responses={
+        200: {"description": "The identity behind the cookie, and its expiry."},
+        401: {"description": "No session, expired, or revoked"},
+    },
+)
 def current_session(
     session: Annotated[AuthenticatedSession, Depends(get_current_session)],
 ) -> SessionResponse:
@@ -209,6 +238,11 @@ def current_session(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_trusted_origin)],
+    summary="Revoke this session and remove the cookie",
+    responses={
+        204: {"description": "The session is revoked in the database, not only in the browser."},
+        503: {"description": "The session store did not answer"},
+    },
 )
 def logout(request: Request, response: Response) -> None:
     try:

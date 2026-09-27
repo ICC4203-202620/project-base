@@ -193,6 +193,10 @@ Comentar una fotografía privada ajena es `404` —esa fotografía no existe par
 quien pregunta—; comentar una privada propia es `422`, porque existe y lo que
 le falta no es permiso sino audiencia.
 
+**Cualquier endpoint puede responder `503`** si su almacén no contesta. Sólo se
+declara en `/docs` donde significa algo distinto —el proveedor de medios, por
+ejemplo—; listarlo en las treinta y siete operaciones sería ruido.
+
 [↑ Índice](#índice)
 
 ---

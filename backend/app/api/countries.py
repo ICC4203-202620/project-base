@@ -18,6 +18,14 @@ class CountryResponse(BaseModel):
     "/countries",
     response_model=list[CountryResponse],
     summary="ISO 3166-1 alpha-2 nationalities, ordered by name",
+    responses={
+        200: {
+            "description": (
+                "Public and cacheable, because the registration form needs it before a "
+                "session exists."
+            )
+        }
+    },
 )
 def index(response: Response) -> tuple[Country, ...]:
     # Public: the registration form needs it before there is a session, and the

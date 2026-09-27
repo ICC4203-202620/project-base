@@ -25,7 +25,23 @@ def _error(error: Exception) -> None:
     )
 
 
-@router.get("/feed", response_model=ActivityPage)
+@router.get(
+    "/feed",
+    response_model=ActivityPage,
+    summary="The activity of what this session follows, newest published first",
+    responses={
+        200: {
+            "description": (
+                "Only public activity, never the viewer's own, and an activity that matches "
+                "both follow criteria appears once. Ordered by the instant of publication, "
+                "which is not the instant it happened. A feed with nothing to show is a 200 "
+                "with an empty list and no cursor, which is not an error."
+            )
+        },
+        422: {"description": "A cursor this API did not issue"},
+        503: {"description": "The feed store did not answer"},
+    },
+)
 def get_feed(
     session: Annotated[AuthenticatedSession, Depends(get_current_session)],
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
@@ -37,7 +53,16 @@ def get_feed(
         _error(error)
 
 
-@router.get("/reviews/{review_id}", response_model=ActivityReview)
+@router.get(
+    "/reviews/{review_id}",
+    response_model=ActivityReview,
+    summary="One review, addressable on its own",
+    responses={
+        200: {"description": "The same object the feed carries under its `review` key."},
+        404: {"description": "It does not exist or is not visible to this session"},
+        503: {"description": "The review store did not answer"},
+    },
+)
 def get_review(
     review_id: UUID,
     session: Annotated[AuthenticatedSession, Depends(get_current_session)],

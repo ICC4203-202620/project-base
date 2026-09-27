@@ -3,7 +3,48 @@
 Esta guía explica cómo está construido el backend y cómo extenderlo sin romper
 sus contratos de ejecución local ni su futura migración a AWS. Para instalar
 herramientas, iniciar Compose, ejecutar pruebas o configurar HTTPS, comienza en
-el [README del backend](README.md).
+el [README del backend](README.md). Para el contrato de cada endpoint, el
+[contrato de la API por épica](docs/api.md).
+
+Aquí está el **porqué**: qué decisión hay detrás de cada forma, y qué se rompe
+si se cambia sin querer.
+
+## Índice
+
+- [Objetivos arquitectónicos](#objetivos-arquitectónicos)
+- [Mapa de la arquitectura](#mapa-de-la-arquitectura)
+- [Stack y función de cada componente](#stack-y-función-de-cada-componente)
+- [Organización del código](#organización-del-código)
+  - [Límites entre módulos](#límites-entre-módulos)
+- [Dos entrypoints, una sola aplicación](#dos-entrypoints-una-sola-aplicación)
+- [Ciclo de autenticación](#ciclo-de-autenticación)
+  - [Registro de cuentas](#registro-de-cuentas)
+  - [Cookies y CSRF](#cookies-y-csrf)
+- [Recurso de restaurantes](#recurso-de-restaurantes)
+  - [Fixtures y seed](#fixtures-y-seed)
+- [Reseñas y almacenamiento de fotografías](#reseñas-y-almacenamiento-de-fotografías)
+  - [Feed de reseñas](#feed-de-reseñas)
+- [Ficha del restaurante y visibilidad de las fotografías](#ficha-del-restaurante-y-visibilidad-de-las-fotografías)
+  - [Personas conocidas, en una sola pasada](#personas-conocidas-en-una-sola-pasada)
+  - [Fotografías: un solo camino de subida](#fotografías-un-solo-camino-de-subida)
+  - [La conversación de una fotografía, que no es actividad](#la-conversación-de-una-fotografía-que-no-es-actividad)
+  - [Evaluaciones y la excepción del resumen](#evaluaciones-y-la-excepción-del-resumen)
+- [Perfil de usuario y regla de visibilidad](#perfil-de-usuario-y-regla-de-visibilidad)
+  - [El envelope de actividad y cómo se agrega una clase](#el-envelope-de-actividad-y-cómo-se-agrega-una-clase)
+  - [Los dos instantes del envelope](#los-dos-instantes-del-envelope)
+  - [Cursores](#cursores)
+- [Notificaciones dirigidas](#notificaciones-dirigidas)
+- [Configuración](#configuración)
+- [Persistencia con SQLAlchemy Core](#persistencia-con-sqlalchemy-core)
+  - [Engine, conexiones y transacciones](#engine-conexiones-y-transacciones)
+- [Esquema y migraciones con Alembic](#esquema-y-migraciones-con-alembic)
+- [Cómo agregar un endpoint](#cómo-agregar-un-endpoint)
+- [Estrategia de pruebas](#estrategia-de-pruebas)
+- [Portabilidad hacia Lambda y Aurora DSQL](#portabilidad-hacia-lambda-y-aurora-dsql)
+- [Convenciones que deben preservarse](#convenciones-que-deben-preservarse)
+- [Referencias oficiales](#referencias-oficiales)
+
+---
 
 ## Objetivos arquitectónicos
 
@@ -22,6 +63,8 @@ Las decisiones centrales son:
 - ocultar la elección PostgreSQL/Aurora DSQL detrás de la creación del engine;
 - ejecutar migraciones fuera del runtime de Lambda; y
 - probar la misma aplicación tanto como ASGI local como handler de Lambda.
+
+[↑ Índice](#índice)
 
 ## Mapa de la arquitectura
 
@@ -51,6 +94,8 @@ nginx, Vite y TLS pertenecen al entorno que rodea la API, no a su lógica. nginx
 presenta frontend y backend bajo un mismo origen; internamente envía `/api/*`,
 `/healthz`, `/docs` y `/openapi.json` a FastAPI.
 
+[↑ Índice](#índice)
+
 ## Stack y función de cada componente
 
 | Tecnología | Responsabilidad en el proyecto | Ubicación principal |
@@ -76,29 +121,50 @@ Uvicorn es el servidor que recibe HTTP y la ejecuta localmente. En AWS tampoco
 se inicia Uvicorn; Mangum traduce el evento de API Gateway al protocolo ASGI
 que entiende la misma aplicación.
 
+[↑ Índice](#índice)
+
 ## Organización del código
 
 ```text
 backend/
 ├── app/
 │   ├── main.py             composición de FastAPI y entrypoints ASGI/Lambda
-│   ├── api/
-│   │   ├── auth.py         contratos HTTP, respuestas y cookies
+│   ├── api/                contrato HTTP: paths, códigos, cookies, errores
 │   │   ├── dependencies.py sesión actual y protección de origen
-│   │   ├── restaurants.py  contrato HTTP del CRUD protegido
-│   │   └── reviews.py      creación multipart y entrega de fotografías
-│   ├── schemas/
-│   │   ├── restaurants.py  modelos Pydantic del CRUD
-│   │   └── reviews.py      respuesta pública de reseña y fotografía
+│   │   ├── auth.py         registro, sesión y cierre
+│   │   ├── countries.py    catálogo de nacionalidades
+│   │   ├── restaurants.py  colección, ficha, mapa, cercanía, seguir
+│   │   ├── photos.py       publicación y entrega de fotografías
+│   │   ├── reviews.py      reseña sobre una fotografía existente
+│   │   ├── evaluations.py  evaluación y criterios
+│   │   ├── visits.py       check-in
+│   │   ├── comments.py     conversación de una fotografía
+│   │   ├── users.py        perfil, actividad, búsqueda y seguir
+│   │   └── feed.py         feed y detalle de reseña
+│   ├── schemas/            modelos Pydantic reutilizables
+│   │   ├── activity.py     envelope de actividad y resumen de persona
+│   │   └── …               uno por recurso
 │   ├── media/
 │   │   └── storage.py      contrato y adaptadores local/S3
 │   ├── core/
 │   │   ├── config.py       configuración y validaciones por ambiente
-│   │   └── security.py     passwords, creación y validación de JWT
-│   ├── services/
+│   │   ├── security.py     passwords, creación y validación de JWT
+│   │   ├── countries.py    catálogo ISO 3166-1 alfa-2
+│   │   └── rating_criteria.py  criterios de evaluación, como dato del código
+│   ├── services/           casos de uso; ninguno depende de objetos HTTP
+│   │   ├── visibility.py   la regla de visibilidad, en un solo lugar
+│   │   ├── cursors.py      códec de cursor opaco
+│   │   ├── activity.py     registro de orígenes de actividad y envelope
+│   │   ├── notifications.py  a quién avisar; enviar es del grupo
 │   │   ├── auth.py         caso de uso y sesiones persistentes
 │   │   ├── restaurants.py  reglas, consultas y transacciones del recurso
-│   │   └── reviews.py      validación, persistencia y compensación de medios
+│   │   ├── photos.py       único camino de subida, galería y autorización
+│   │   ├── reviews.py      validación y persistencia de una reseña
+│   │   ├── evaluations.py  calificaciones por criterio y resumen
+│   │   ├── visits.py       check-in y sus dos instantes
+│   │   ├── comments.py     thread de dos niveles
+│   │   ├── users.py        perfil, actividad, búsqueda y seguimiento
+│   │   └── feed.py         unión de orígenes ordenada por publicación
 │   └── db/
 │       ├── engine.py       engines PostgreSQL/DSQL y políticas de pool
 │       ├── fixtures.py     datos docentes deterministas, sin inserciones
@@ -108,6 +174,7 @@ backend/
 │       └── seed.py         datos de demostración optativos
 ├── migrations/             configuración y revisiones de Alembic
 ├── tests/                  suite automatizada
+├── docs/                   contrato de la API, HTTPS local, plataformas, AWS
 ├── entrypoint.sh           migración, seed y Uvicorn en el contenedor local
 └── pyproject.toml          paquete, dependencias y herramientas
 ```
@@ -135,6 +202,8 @@ son pasos relacionados que `app/services/auth.py` coordina. El router conserva
 las decisiones de HTTP y la dependencia convierte una sesión de aplicación en
 autorización reutilizable para otros recursos.
 
+[↑ Índice](#índice)
+
 ## Dos entrypoints, una sola aplicación
 
 `app/main.py` exporta dos objetos:
@@ -150,6 +219,8 @@ patrón de composición con `APIRouter`.
 El endpoint `/healthz` y una prueba con un evento HTTP API v2 aseguran que ambos
 caminos mantengan el mismo comportamiento. La arquitectura AWS completa está
 en [Despliegue en AWS Lambda y Aurora DSQL](docs/aws-lambda.md).
+
+[↑ Índice](#índice)
 
 ## Ciclo de autenticación
 
@@ -245,6 +316,8 @@ adjuntan automáticamente, login y logout además validan `Origin`. Se acepta el
 origen del request —incluido IP o mDNS bajo el gateway— y los valores explícitos
 de `CORS_ORIGINS`; un navegador que declare una solicitud cross-site se rechaza
 con 403. Clientes no navegador pueden omitir `Origin`.
+
+[↑ Índice](#índice)
 
 ## Recurso de restaurantes
 
@@ -374,6 +447,8 @@ recibe la clave opaca que entregue el proveedor. Si la transacción SQL falla,
 el seed elimina los objetos que alcanzó a crear. Reejecutarlo no sobrescribe
 filas ni vuelve a cargar las fotografías ya asociadas a una reseña fixture.
 
+[↑ Índice](#índice)
+
 ## Reseñas y almacenamiento de fotografías
 
 La creación separa tres representaciones que no deben confundirse:
@@ -439,6 +514,8 @@ exactamente una fotografía pública. Rating y comentarios pertenecen a
 evoluciones posteriores. El header `Location` apunta a
 `/api/v1/reviews/{id}`, implementado por el router de feed como recurso de
 detalle.
+
+[↑ Índice](#índice)
 
 ## Ficha del restaurante y visibilidad de las fotografías
 
@@ -618,6 +695,8 @@ tres números coincidan en la misma pantalla.
 Cuando llegaron las evaluaciones, sólo esa función cambió: ni el router ni la
 forma de la respuesta lo hicieron.
 
+[↑ Índice](#índice)
+
 ## Perfil de usuario y regla de visibilidad
 
 `app/services/users.py` es donde vive la regla de visibilidad del proyecto, y
@@ -758,6 +837,8 @@ Base64url lo hace utilizable dentro de un query string.
 El códec vive fuera del feed porque el perfil lo usa con otra clave de orden,
 y las colecciones de restaurantes lo usarán con una clave que no es temporal.
 
+[↑ Índice](#índice)
+
 ## Notificaciones dirigidas
 
 `app/services/notifications.py` responde una sola pregunta —a quién
@@ -776,9 +857,10 @@ suscripciones es de cada grupo y este módulo no debe conocerla.
 
 El enganche es único. Antes de la épica 14 vivía dentro de la creación de una
 reseña, lo que era razonable mientras la reseña era la única clase de
-actividad; con cinco habría obligado a cada grupo a repetir su llamada cinco
-veces y a descubrir por su cuenta las cuatro nuevas. Ahora los cinco servicios
-invocan `notify` **después** de que su transacción se confirma, nunca dentro:
+actividad; con cuatro habría obligado a cada grupo a repetir su llamada y a
+descubrir por su cuenta las clases nuevas. Ahora los servicios que avisan
+—visitas, fotografías y evaluaciones— invocan `notify` **después** de que su
+transacción se confirma, nunca dentro:
 avisar sobre una escritura que después revierte produce avisos de contenido
 que no existe, y el reintento de una transacción bajo Aurora DSQL puede
 ejecutar su cuerpo más de una vez. Un emisor que falla se registra y no
@@ -796,6 +878,8 @@ fotografía reseñada deja de ser actividad propia. Un segundo aviso
 contradiría lo que el seguidor va a ver al abrirlo. La regla, entonces, no es
 «una actividad, un aviso» sino **una entrada del feed, un aviso**, que es la
 misma deduplicación que el enunciado pide.
+
+[↑ Índice](#índice)
 
 ## Configuración
 
@@ -826,6 +910,8 @@ conserva para el modo en que Vite se ejecuta directamente y la API se abre en
 otro origen. Los mismos valores son orígenes explícitamente confiables para las
 operaciones mutables de autenticación; CORS y la validación CSRF son controles
 distintos.
+
+[↑ Índice](#índice)
 
 ## Persistencia con SQLAlchemy Core
 
@@ -877,6 +963,8 @@ reintentos, logout actualiza condicionalmente una fila aún no revocada y el
 CRUD de restaurantes fija UUID/timestamp y repite el conjunto completo de
 cambios.
 
+[↑ Índice](#índice)
+
 ## Esquema y migraciones con Alembic
 
 `app/db/schema.py` representa el esquema deseado actualmente. Los archivos de
@@ -921,6 +1009,8 @@ El contenedor local ejecuta `alembic upgrade head` antes de Uvicorn. Lambda no
 lo hace: en AWS las migraciones son un job separado del despliegue y la función
 no recibe permisos DDL.
 
+[↑ Índice](#índice)
+
 ## Cómo agregar un endpoint
 
 1. Crea o amplía un módulo en `app/api/` y declara su `APIRouter`.
@@ -936,24 +1026,66 @@ no recibe permisos DDL.
 Usa rutas relativas `/api/v1/...` desde el frontend. No incorpores hosts,
 puertos ni nombres de ambiente en los módulos de la API.
 
+[↑ Índice](#índice)
+
 ## Estrategia de pruebas
 
 La suite combina niveles distintos:
 
-- `test_health.py`, `test_auth.py` y `test_restaurants.py`: contrato HTTP rápido
-  con `TestClient` y colaboradores reemplazados cuando corresponde;
+**Infraestructura y contratos transversales**
+
+- `test_health.py`, `test_auth.py`: ciclo de sesión y contrato HTTP rápido con
+  `TestClient`;
 - `test_security.py` y `test_retry.py`: claims obligatorios, expiración y
   política de reintentos;
 - `test_config.py`: invariantes de configuración;
 - `test_database.py`: construcción de engines PostgreSQL/DSQL;
-- `test_seed.py`: idempotencia del seed;
 - `test_media_storage.py`: contrato local/S3 sin una cuenta AWS;
-- `test_reviews.py` y `test_reviews_service.py`: multipart, autorización,
-  imágenes, fallas parciales y compensación;
+- `test_countries.py`: catálogo de nacionalidades;
+- `test_seed.py`: idempotencia del seed y resolución de colisiones de fixtures.
+
+**Una clase de actividad o una épica por archivo**
+
+- `test_restaurants.py`, `test_restaurant_search.py`, `test_restaurant_map.py`,
+  `test_restaurant_nearby.py`, `test_restaurant_detail.py`: colección, búsqueda,
+  mapa, cercanía, ficha, galería y personas conocidas;
+- `test_photos.py`: único camino de subida, grupos, validación de imágenes,
+  fallas parciales y compensación;
+- `test_reviews.py`, `test_visits.py`, `test_evaluations.py`,
+  `test_comments.py`: cada clase con su visibilidad, sus errores y su
+  paginación;
+- `test_users.py`: perfil, actividad, búsqueda y seguimiento;
+- `test_feed.py`: unión de orígenes, orden por publicación, exclusión de lo
+  propio y costo de una página;
+- `test_notifications.py`: resolución de destinatarios y la regla «una entrada
+  del feed, un aviso».
+
+**Contra el motor real**
+
 - `test_integration.py`: ciclo completo de migraciones, seed, autenticación y
-  persistencia de restaurantes/reseñas contra PostgreSQL real; y
+  persistencia contra PostgreSQL. Aquí viven las comprobaciones que SQLite
+  podría responder distinto: funciones de ventana, agrupaciones y la forma de
+  la unión acotada;
 - `test_lambda.py`: eventos API Gateway HTTP API v2, cookies y un upload
   multipart binario procesados por Mangum.
+
+Las pruebas de servicio corren sobre SQLite en memoria con el mismo `metadata`
+y el mismo seed, lo que las hace rápidas; las de integración comprueban que el
+motor real esté de acuerdo.
+
+**Documentación**
+
+- `test_documentation.py`: que el contrato documentado y el que expone `/docs`
+  sean el mismo. Comprueba que toda operación esté en
+  [`docs/api.md`](docs/api.md), que ninguna documentada haya desaparecido, que
+  cada una lleve un resumen escrito por alguien y no el que FastAPI deriva del
+  nombre de la función, y que el mapa de épicas del README llegue a las
+  diecisiete secciones.
+
+Existe porque los dos se desfasaron: el README creció una épica a la vez y
+terminó afirmando cosas que habían dejado de ser ciertas, y siete operaciones
+llegaron a OpenAPI con el resumen autogenerado. Nada de eso rompió una prueba,
+porque ninguna miraba.
 
 Para desarrollo rápido:
 
@@ -978,6 +1110,8 @@ Una prueba unitaria no reemplaza la prueba de migración. Todo cambio de tablas,
 restricciones o comportamiento dependiente de PostgreSQL requiere cobertura de
 integración.
 
+[↑ Índice](#índice)
+
 ## Portabilidad hacia Lambda y Aurora DSQL
 
 Estas reglas mantienen abierta la migración futura:
@@ -997,6 +1131,8 @@ Estas reglas mantienen abierta la migración futura:
 La guía [AWS Lambda y Aurora DSQL](docs/aws-lambda.md) detalla IAM, packaging,
 observabilidad y las diferencias de compatibilidad que deben verificarse.
 
+[↑ Índice](#índice)
+
 ## Convenciones que deben preservarse
 
 - No guardar secretos, tokens, passwords ni claves privadas en Git.
@@ -1010,6 +1146,8 @@ observabilidad y las diferencias de compatibilidad que deben verificarse.
   entorno después de cualquier invocación.
 - No dividir el monolito en servicios solo por organización de carpetas; los
   módulos son límites de código dentro de una aplicación.
+
+[↑ Índice](#índice)
 
 ## Referencias oficiales
 
@@ -1031,3 +1169,5 @@ observabilidad y las diferencias de compatibilidad que deben verificarse.
 - [Boto3: `upload_fileobj`](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3/client/upload_fileobj.html)
 - [Amazon S3: URLs prefirmadas](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html)
 - [Pytest](https://docs.pytest.org/)
+
+[↑ Índice](#índice)
