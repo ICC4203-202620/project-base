@@ -40,7 +40,19 @@ app.include_router(users_router, prefix="/api/v1")
 app.include_router(visits_router, prefix="/api/v1")
 
 
-@app.get("/healthz", tags=["health"])
+@app.get(
+    "/healthz",
+    tags=["health"],
+    summary="Liveness of the service",
+    responses={
+        200: {
+            "description": (
+                "Used by the container and by the deployment procedure. It is not part of the "
+                "contract of the application, and needs no session."
+            )
+        }
+    },
+)
 def healthz():
     return {"status": "ok"}
 

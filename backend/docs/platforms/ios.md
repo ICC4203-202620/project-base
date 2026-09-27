@@ -11,7 +11,7 @@ El gateway nginx presenta `certs/local.pem`, un certificado X.509 firmado por
 la CA local de `mkcert`. iOS todavía no conoce esa CA, por lo que no puede
 validar la firma. Al instalar `rootCA.pem` y habilitar su confianza, agregas su
 certificado público al almacén de confianza del dispositivo. Revisa el
-[modelo completo de CA y certificados](../../README.md#conceptos-que-conviene-recordar)
+[modelo completo de CA y certificados](../https-local.md#conceptos-que-conviene-recordar)
 si estos archivos te resultan nuevos.
 
 Esta confianza es deliberadamente amplia: el dispositivo puede aceptar otros
@@ -95,7 +95,7 @@ Deberías ver una respuesta exitosa sin una advertencia de certificado. Si
 Safari indica que el nombre del certificado no coincide, vuelve a generarlo con
 el host exacto que aparece en la URL. Si elegiste el nombre `.local` opcional,
 recuerda que
-[mDNS solo funciona en el enlace local](../../README.md#ip-local-dns-y-mdns) y
+[mDNS solo funciona en el enlace local](../https-local.md#ip-local-dns-y-mdns) y
 que ese nombre exacto también debe estar en el certificado.
 
 ## 6. Quita la CA cuando termines

@@ -51,6 +51,13 @@ def _raise_http_error(error: Exception) -> NoReturn:
     dependencies=[Depends(require_trusted_origin)],
     summary="Record that the session was at a restaurant",
     responses={
+        201: {
+            "description": (
+                "`occurred_at` is when the person was there and may be in the past; "
+                "absent, it is the instant of the request. There is no uniqueness "
+                "restriction: visiting the same restaurant many times is the normal case."
+            )
+        },
         404: {"description": "No restaurant has this identifier"},
         422: {"description": "Unknown visibility, or a moment in the future or without a zone"},
     },
@@ -83,7 +90,8 @@ def create(
     response_model=ActivityVisit,
     summary="One visit, addressable on its own",
     responses={
-        404: {"description": "The visit does not exist or is not visible to this session"}
+        200: {"description": "The same object the feed carries under its `visit` key."},
+        404: {"description": "The visit does not exist or is not visible to this session"},
     },
 )
 def show(

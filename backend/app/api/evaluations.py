@@ -50,6 +50,14 @@ def _raise_http_error(error: Exception) -> NoReturn:
     "",
     response_model=list[RatingCriterionResponse],
     summary="Criteria a restaurant is evaluated on",
+    responses={
+        200: {
+            "description": (
+                "Data of the backend and not an editable table. Every criterion is "
+                "mandatory exactly once in an evaluation."
+            )
+        }
+    },
 )
 def criteria() -> tuple[RatingCriterion, ...]:
     return RATING_CRITERIA
@@ -62,6 +70,13 @@ def criteria() -> tuple[RatingCriterion, ...]:
     dependencies=[Depends(require_trusted_origin)],
     summary="Evaluate a restaurant as a whole",
     responses={
+        201: {
+            "description": (
+                "One evaluation per person and restaurant. Every criterion of the "
+                "catalogue is mandatory exactly once, so the averages of two restaurants "
+                "are comparable."
+            )
+        },
         404: {"description": "No restaurant has this identifier"},
         409: {
             "description": (
@@ -109,7 +124,8 @@ def create(
     response_model=EvaluationResponse,
     summary="One evaluation, addressable on its own",
     responses={
-        404: {"description": "It does not exist or is not visible to this session"}
+        200: {"description": "The same object the feed carries under its `evaluation` key."},
+        404: {"description": "It does not exist or is not visible to this session"},
     },
 )
 def show(

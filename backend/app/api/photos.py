@@ -137,7 +137,13 @@ def publish(
     response_model=PhotoResponse,
     summary="Metadata of one photograph",
     responses={
-        404: {"description": "The photograph does not exist or is not visible to this session"}
+        200: {
+            "description": (
+                "`comments_count` is the whole conversation, replies included, so the "
+                "interface can decide whether to offer the way into the thread."
+            )
+        },
+        404: {"description": "The photograph does not exist or is not visible to this session"},
     },
 )
 def show(
@@ -150,7 +156,22 @@ def show(
         _raise_http_error(error)
 
 
-@router.get("/{photo_id}/content", summary="The bytes of one photograph")
+@router.get(
+    "/{photo_id}/content",
+    summary="The bytes of one photograph",
+    responses={
+        200: {
+            "description": (
+                "Authorized against the photograph itself and not against a review it may "
+                "carry, so the gallery and the content never disagree. A remote provider "
+                "answers 307 towards its own URL instead."
+            )
+        },
+        307: {"description": "Redirect to the remote media provider"},
+        404: {"description": "The photograph does not exist or is not visible to this session"},
+        503: {"description": "The media provider could not resolve the object"},
+    },
+)
 def content(
     photo_id: UUID,
     session: Annotated[AuthenticatedSession, Depends(get_current_session)],

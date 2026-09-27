@@ -259,6 +259,14 @@ def nearby(
     "",
     response_model=list[CuisineStyleResponse],
     summary="Cuisine styles a restaurant may be created with",
+    responses={
+        200: {
+            "description": (
+                "The whole catalogue, so the form builds its selector without slugs "
+                "written by hand."
+            )
+        }
+    },
 )
 def cuisine_styles() -> list[restaurant_service.CuisineStyle]:
     try:
@@ -272,6 +280,24 @@ def cuisine_styles() -> list[restaurant_service.CuisineStyle]:
     response_model=RestaurantResponse,
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(require_trusted_origin)],
+    summary="Create a restaurant somebody could not find",
+    responses={
+        201: {
+            "description": (
+                "Name and address are compared ignoring case and repeated spaces, but not "
+                "diacritics: «Café Perú» and «Cafe Peru» are two restaurants two people may "
+                "have contributed."
+            )
+        },
+        409: {
+            "description": (
+                "The same name and address already exist. The body names the restaurant that "
+                "does, so the interface can take the user to it instead of leaving them on an "
+                "error. Preventing duplicates is this answer and not a previous query."
+            )
+        },
+        422: {"description": "Coordinates out of range, an empty style list, or an unknown slug"},
+    },
 )
 def create(payload: RestaurantCreate, response: Response) -> restaurant_service.Restaurant:
     try:
@@ -462,6 +488,19 @@ def gallery(
     "/{restaurant_id}",
     response_model=RestaurantResponse,
     dependencies=[Depends(require_trusted_origin)],
+    summary="Modify only the fields the body carries",
+    responses={
+        200: {
+            "description": (
+                "Any subset of the writable fields. In this teaching base any authenticated "
+                "user may modify any restaurant, which is not an authorization model for "
+                "production."
+            )
+        },
+        404: {"description": "No restaurant has this identifier"},
+        409: {"description": "The change collides with a restaurant that already exists"},
+        422: {"description": "An empty body, a field set to null, or an unknown style"},
+    },
 )
 def update(restaurant_id: UUID, payload: RestaurantUpdate) -> restaurant_service.Restaurant:
     try:
@@ -482,6 +521,16 @@ def update(restaurant_id: UUID, payload: RestaurantUpdate) -> restaurant_service
     "/{restaurant_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(require_trusted_origin)],
+    summary="Delete a restaurant",
+    responses={
+        204: {
+            "description": (
+                "In this teaching base any authenticated user may delete any restaurant, which "
+                "is not an authorization model for production."
+            )
+        },
+        404: {"description": "No restaurant has this identifier"},
+    },
 )
 def destroy(restaurant_id: UUID) -> None:
     try:
