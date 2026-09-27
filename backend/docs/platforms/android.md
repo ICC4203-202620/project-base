@@ -14,7 +14,7 @@ El gateway nginx presenta `certs/local.pem`, un certificado X.509 firmado por
 la CA local de `mkcert`. Android todavía no conoce esa CA, por lo que no puede
 validar la firma. Al instalar `rootCA.pem`, agregas su certificado público al
 almacén de confianza del usuario. Revisa el
-[modelo completo de CA y certificados](../../README.md#conceptos-que-conviene-recordar)
+[modelo completo de CA y certificados](../https-local.md#conceptos-que-conviene-recordar)
 si estos archivos te resultan nuevos.
 
 Esta confianza es deliberadamente amplia: el dispositivo puede aceptar otros
@@ -82,7 +82,7 @@ Deberías ver una respuesta exitosa sin una advertencia de certificado. Si el
 navegador indica que el nombre del certificado no coincide, vuelve a generarlo
 incluyendo exactamente el host que aparece en la URL. Si elegiste el nombre
 `.local` opcional, recuerda que
-[mDNS solo funciona en el enlace local](../../README.md#ip-local-dns-y-mdns) y
+[mDNS solo funciona en el enlace local](../https-local.md#ip-local-dns-y-mdns) y
 que ese nombre exacto también debe estar en el certificado.
 
 ## 5. Aplicaciones Android nativas

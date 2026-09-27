@@ -31,7 +31,7 @@ Antes de implementar el manifest, el service worker o Web Push, cada integrante 
 | Entender el esqueleto HTML/JavaScript, el cliente HTTP y los estados de autenticación | [README del frontend](../frontend/README.md) |
 | Levantar el stack, conocer las credenciales de demostración y explorar la API | [Inicio rápido del backend](../backend/README.md#inicio-rápido) |
 | Preparar Docker, red y certificados en tu computador | [Linux](../backend/docs/platforms/linux.md), [macOS](../backend/docs/platforms/macos.md) o [Windows y WSL](../backend/docs/platforms/windows.md) |
-| Probar la aplicación mediante HTTPS desde un dispositivo | [HTTPS local y acceso desde un teléfono](../backend/README.md#https-local-y-acceso-desde-un-teléfono) y la guía de [Android](../backend/docs/platforms/android.md) o [iOS/iPadOS](../backend/docs/platforms/ios.md) |
+| Probar la aplicación mediante HTTPS desde un dispositivo | [HTTPS local y acceso desde un teléfono](../backend/docs/https-local.md) y la guía de [Android](../backend/docs/platforms/android.md) o [iOS/iPadOS](../backend/docs/platforms/ios.md) |
 | Comprender o extender FastAPI, SQLAlchemy y Alembic | [Arquitectura y desarrollo del backend](../backend/DEVELOPER.md) |
 | Agregar tablas, configuración, endpoints y pruebas para Web Push | [Configuración](../backend/DEVELOPER.md#configuración), [migraciones](../backend/DEVELOPER.md#esquema-y-migraciones-con-alembic), [cómo agregar un endpoint](../backend/DEVELOPER.md#cómo-agregar-un-endpoint) y [estrategia de pruebas](../backend/DEVELOPER.md#estrategia-de-pruebas) |
 

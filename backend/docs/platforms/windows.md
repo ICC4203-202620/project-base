@@ -10,7 +10,7 @@ es obligatorio para ejecutar el backend.
 El objetivo es preparar cuatro piezas: Docker Compose para ejecutar los
 servicios, una CA local de `mkcert`, una dirección que el teléfono pueda
 alcanzar y un certificado emitido para esa dirección. Antes de continuar,
-revisa el [modelo de CA, X.509 y confianza](../../README.md#conceptos-que-conviene-recordar).
+revisa el [modelo de CA, X.509 y confianza](../https-local.md#conceptos-que-conviene-recordar).
 
 ## 1. Docker y Compose
 
@@ -173,4 +173,4 @@ de `rootCA.pem` en el dispositivo. Si `curl.exe` rechaza el certificado,
 deshabilita la verificación TLS y no debe considerarse una solución.
 
 Continúa con la explicación común de
-[HTTPS local y acceso desde un teléfono](../../README.md#https-local-y-acceso-desde-un-teléfono).
+[HTTPS local y acceso desde un teléfono](../https-local.md).

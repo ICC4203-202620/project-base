@@ -136,11 +136,11 @@ El `notificationclick` ya no abre una URL que el servidor resuelve. La aplicaci�
 | Si necesitas... | Comienza en... |
 | --- | --- |
 | Recuperar las decisiones de diseño, la paleta y la tipografía | el archivo de Figma del grupo y `docs/entrega1/README.md` |
-| Conocer el contrato completo de la API | `/docs` en la instalación local, y el [README del backend](../backend/README.md) |
+| Conocer el contrato completo de la API | el [contrato de la API por épica](../backend/docs/api.md), y `/docs` en la instalación local |
 | Entender cómo se separan actividad pública y privada, y cómo se resuelven los destinatarios de una notificación | [Arquitectura y desarrollo del backend](../backend/DEVELOPER.md) |
 | Conservar el contrato de paths y el origen único | [README del frontend](../frontend/README.md#arquitectura-local-un-solo-origen) |
 | Levantar el stack y explorar la API | [Inicio rápido del backend](../backend/README.md#inicio-rápido) |
-| Probar desde un dispositivo con HTTPS | [HTTPS local y acceso desde un teléfono](../backend/README.md#https-local-y-acceso-desde-un-teléfono) |
+| Probar desde un dispositivo con HTTPS | [HTTPS local y acceso desde un teléfono](../backend/docs/https-local.md) |
 
 El orden de trabajo recomendado es:
 

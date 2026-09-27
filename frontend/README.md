@@ -208,7 +208,7 @@ La API sigue disponible directamente en <http://localhost:8000> para
 diagnóstico, pero el frontend no debe construir URLs con ese puerto.
 
 Para abrir la aplicación desde un teléfono con HTTPS, sigue la guía de
-[HTTPS local y acceso desde un teléfono](../backend/README.md#https-local-y-acceso-desde-un-teléfono).
+[HTTPS local y acceso desde un teléfono](../backend/docs/https-local.md).
 Los puntos de entrada serán `https://localhost:5173` en el computador y, por
 ejemplo, `https://192.168.1.40:5173` desde otro dispositivo.
 
