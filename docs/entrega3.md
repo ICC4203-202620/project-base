@@ -28,14 +28,27 @@ El código base tampoco incluye React. Migrar el frontend es el objeto de esta e
 
 ## Actualización del código base
 
-El código base llega al repositorio del grupo por la vía habitual, descrita en la sección «Uso del repositorio» del enunciado general:
+El código base llega al repositorio del grupo por la vía habitual, descrita en la sección «Uso del repositorio» del enunciado general. **Háganlo en una rama**, no sobre `main`, para poder abandonar la mezcla si se complica:
 
 ```sh
+git checkout -b mezcla-entrega3
 git fetch upstream
-git merge upstream/main
+git merge upstream/main --allow-unrelated-histories
 ```
 
-La mezcla ocurre sobre un repositorio que ya contiene el trabajo de la entrega 2, de modo que habrá conflictos. Son pocos y están acotados. Resuélvanlos en una rama, con el stack corriendo, antes de escribir una línea de React.
+**La bandera `--allow-unrelated-histories` es obligatoria para varios grupos.** Los repositorios se crearon a partir de un template y no como fork, de modo que, mientras un grupo no haya mezclado `upstream` al menos una vez, su historial y el del código base no tienen ningún commit en común. Sin la bandera, Git se niega antes de empezar:
+
+```
+fatal: refusing to merge unrelated histories
+```
+
+Al grupo que ya mezcló `upstream` antes, la bandera no le hace nada: Git la ignora cuando las historias sí están relacionadas. Por eso el comando de arriba sirve en los dos casos y no hay que averiguar en cuál está cada uno.
+
+Un grupo que nunca mezcló verá **muchos más conflictos**, del orden de veinte, y de una clase distinta: archivos como `pyproject.toml`, `backend/Dockerfile`, `backend/migrations/env.py` o `backend/app/db/session.py`, que ambos lados tienen idénticos o casi, pero que Git no puede comparar contra un ancestro porque no lo hay. En esos casos la resolución suele ser quedarse con la versión del código base, salvo donde el grupo haya agregado algo suyo.
+
+Una vez resuelta la mezcla, esa rama queda relacionada con el código base y las siguientes actualizaciones ya no necesitan la bandera ni producen esta clase de conflicto.
+
+La mezcla ocurre sobre un repositorio que ya contiene el trabajo de la entrega 2, de modo que habrá conflictos. Resuélvanlos con el stack corriendo, antes de escribir una línea de React.
 
 ### Numeración de las migraciones
 
@@ -90,14 +103,22 @@ Tres advertencias sobre este procedimiento:
 
 ### Puntos de conflicto conocidos
 
+Esta lista sale de mezclar el código base sobre repositorios reales de la entrega 2. Cuántos aparezcan depende de cuánto haya tocado el grupo, pero todos son de resolución mecánica: **casi siempre la respuesta es conservar los dos lados**.
+
 | Archivo | Qué ocurre |
 | --- | --- |
-| `backend/app/db/schema.py` | El código base agrega sus tablas al final del módulo. Si su tabla de suscripciones quedó antes de ese punto, la mezcla es automática. |
-| `backend/app/main.py` | Ambos agregan un `include_router`. Conserven los dos. |
+| `backend/app/db/schema.py` | Ambos agregan tablas al final del módulo, así que **el conflicto es prácticamente seguro**. Conserven las dos definiciones, en cualquier orden: son tablas independientes. |
+| `backend/app/main.py` | Ambos agregan importaciones y `include_router`. Conserven los dos. Si el grupo agregó además middleware o manejadores de excepción, van después de los `include_router` del código base. |
+| `backend/app/services/auth.py` | El código base amplía sus importaciones de SQLAlchemy y el grupo puede haber agregado las suyas. Conserven la unión de ambas listas. |
+| `backend/app/api/reviews.py` | El código base reescribe el endpoint: ahora recibe JSON sobre una fotografía que ya existe. El enganche del emisor de push **ya no vive aquí**; trasladen su llamada al módulo de notificaciones, como se explica abajo. |
+| `backend/tests/test_reviews.py` | Las pruebas de reseñas se reescribieron junto con el endpoint. Conserven las del código base y readapten las suyas al contrato nuevo. |
+| `frontend/src/api.js`, `frontend/src/restaurants.js` | El código base ajustó el consumo de la colección de restaurantes, que ahora responde `{ items, next_cursor }`. Como el frontend se reescribe en React, lo que aquí se conserve es provisorio. |
+| `backend/README.md`, `frontend/README.md` | Documentación reorganizada por el código base. Conserven la suya si la editaron; si no, tomen la del código base. |
 | `backend/app/core/config.py` | Ambos agregan campos de configuración. Conserven los dos bloques. |
 | `backend/pyproject.toml` | Ambos agregan dependencias. Conserven las dos listas. |
 | `docker-compose.yml` | Ambos agregan variables de entorno al servicio `backend`. Conserven las dos. |
-| `backend/app/services/reviews.py` | El código base reescribe la creación de reseñas: ahora se escriben sobre una fotografía que ya existe. El enganche del emisor de push **ya no vive aquí**; trasladen su llamada al módulo de notificaciones, como se explica abajo. |
+
+Los tres últimos aparecen sobre todo en la mezcla sin ancestro común descrita más arriba.
 
 El código base no modifica `frontend/public/`, el service worker, el manifest, los iconos ni los módulos de push y de almacenamiento offline. Ese código es del grupo y llega intacto a esta entrega.
 
