@@ -1,0 +1,107 @@
+"""The chronological view of what the people and restaurants you follow publish."""
+
+from uuid import UUID
+
+from sqlalchemy import desc, or_, select, union_all
+from sqlalchemy.exc import SQLAlchemyError
+
+from app.db.schema import restaurant_follows, reviews, user_follows
+from app.db.session import engine
+from app.services.activity import (
+    ACTIVITY_SOURCES,
+    ActivitySource,
+    hydrate,
+    review_activity_statement,
+    review_object,
+)
+from app.services.cursors import decode_time_cursor, encode_time_cursor
+from app.services.reviews import ReviewNotFoundError, ReviewStoreError
+from app.services.visibility import PUBLIC
+
+
+def _followed_condition(source: ActivitySource, viewer_id: UUID):
+    """Written by someone the viewer follows, or at a restaurant they follow.
+
+    One logical union and not two concatenated lists, so an activity that
+    matches both appears once.
+    """
+    return or_(
+        source.author_id.in_(
+            select(user_follows.c.followed_id).where(user_follows.c.follower_id == viewer_id)
+        ),
+        source.restaurant_id.in_(
+            select(restaurant_follows.c.restaurant_id).where(
+                restaurant_follows.c.user_id == viewer_id
+            )
+        ),
+    )
+
+
+def _source_keys(source: ActivitySource, viewer_id: UUID, cursor: str | None, limit: int):
+    keys = source.keys(viewer_id).where(
+        # Only public activity reaches a feed.
+        source.visibility == PUBLIC,
+        # And never the viewer's own, not even at a restaurant they follow.
+        # A feed is what one hears about, and nobody hears about what they
+        # just published; their own activity lives in their profile. It is
+        # also the rule the notifications apply, where the author is always
+        # excluded, and the application should not answer the same question
+        # in two ways.
+        source.author_id != viewer_id,
+        _followed_condition(source, viewer_id),
+    )
+    if cursor:
+        published_at, activity_id = decode_time_cursor(cursor)
+        keys = source.after(keys, by="published", value=published_at, identifier=activity_id)
+    # Bounded before the union, and after the cursor: a branch cut without the
+    # cursor would hand back the same rows on every page.
+    return source.newest(keys, by="published", limit=limit)
+
+
+def get_feed(viewer_id: UUID, *, limit: int, cursor: str | None = None) -> dict:
+    """One page of the feed, ordered by the instant each activity was published.
+
+    The sort keys of every source are unioned, ordered and cut in SQL, so the
+    page costs one bounded query however many classes of activity exist. Only
+    the rows that made the page are then read.
+
+    Each source contributes at most `limit + 1` keys, because no more than
+    that can reach the page and the surplus is what decides whether there is
+    another one. The decision is taken on the merged result and not on any
+    single branch.
+    """
+    key_sets = [_source_keys(source, viewer_id, cursor, limit + 1) for source in ACTIVITY_SOURCES]
+    combined = union_all(*key_sets).subquery("activity")
+    page = (
+        select(combined)
+        .order_by(desc(combined.c.published_at), desc(combined.c.id))
+        .limit(limit + 1)
+    )
+
+    try:
+        with engine.connect() as connection:
+            keys = connection.execute(page).mappings().all()
+            has_next = len(keys) > limit
+            keys = keys[:limit]
+            items = hydrate(connection, viewer_id, keys)
+    except SQLAlchemyError as error:
+        raise ReviewStoreError from error
+
+    return {
+        "items": items,
+        "next_cursor": (
+            encode_time_cursor(keys[-1]["published_at"], keys[-1]["id"]) if has_next else None
+        ),
+    }
+
+
+def get_review(review_id: UUID, *, viewer_id: UUID) -> dict:
+    statement = review_activity_statement(viewer_id).where(reviews.c.id == review_id)
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(statement).mappings().first()
+    except SQLAlchemyError as error:
+        raise ReviewStoreError from error
+    if not row:
+        raise ReviewNotFoundError
+    return review_object(row)

@@ -1,0 +1,735 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Base E4: frontend privado en S3/CloudFront, HTTP API, cuatro Lambdas y
+  Aurora DSQL de una region. Desplegar exclusivamente en sa-east-1.
+
+# El bucket de artefactos lo crea el script antes de esta pila. No es el bucket
+# de frontend ni el de fotografias, y su limpieza tambien corresponde al script.
+# No cambiar los identificadores logicos de los recursos persistentes al actualizar.
+# Retain en reemplazos es una ultima proteccion; el script rechaza reemplazos de
+# datos y distribucion. Delete solo se aplica al eliminar deliberadamente la pila.
+Parameters:
+  DeploymentName:
+    Type: String
+    MinLength: 3
+    MaxLength: 40
+    AllowedPattern: '[a-z][a-z0-9-]*[a-z0-9]'
+    Description: Nombre estable del despliegue; no modificar entre actualizaciones.
+  ArtifactBucketName:
+    Type: String
+    Description: Bucket privado de artefactos ZIP, ya creado en sa-east-1.
+  AccountsCodeKey:
+    Type: String
+  DomainCodeKey:
+    Type: String
+  PhotosCodeKey:
+    Type: String
+  NotificationsCodeKey:
+    Type: String
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Secreto compartido por las tres funciones HTTP; conservar al actualizar.
+  VapidPrivateKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: Clave privada del grupo; solo se entrega al emisor.
+  VapidPublicKey:
+    Type: String
+    Default: ''
+  VapidSubject:
+    Type: String
+    Default: ''
+  NotificationsEnabled:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['false', 'true']
+    Description: Habilitar solo despues de integrar suscripciones y emisor del grupo.
+
+Rules:
+  SaoPauloOnly:
+    Assertions:
+      - Assert: !Equals [!Ref 'AWS::Region', sa-east-1]
+        AssertDescription: Los recursos regionales de E4 se despliegan en sa-east-1.
+
+Resources:
+  DsqlCluster:
+    Type: AWS::DSQL::Cluster
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      # Sin MultiRegionProperties: el cluster es de una sola region.
+      DeletionProtectionEnabled: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${DeploymentName}-database'
+        - Key: Deployment
+          Value: !Ref DeploymentName
+
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Deployment
+          Value: !Ref DeploymentName
+
+  MediaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      # Permitir fetch de las fotografias firmadas solo desde la aplicacion.
+      # CORS no concede acceso a objetos: el bucket permanece privado.
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - !Sub 'https://${Distribution.DomainName}'
+            AllowedMethods: [GET, HEAD]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Deployment
+          Value: !Ref DeploymentName
+
+  MediaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MediaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt MediaBucket.Arn
+              - !Sub '${MediaBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+  AccountsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DeploymentName}-accounts'
+      RetentionInDays: 14
+  DomainLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DeploymentName}-domain'
+      RetentionInDays: 14
+  PhotosLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DeploymentName}-photos'
+      RetentionInDays: 14
+  NotificationsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DeploymentName}-notifications'
+      RetentionInDays: 14
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/apigateway/${DeploymentName}'
+      RetentionInDays: 14
+
+  AccountsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: AccountsRuntime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: OwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt AccountsLogGroup.Arn
+              - Sid: ApplicationDatabase
+                Effect: Allow
+                Action: dsql:DbConnect
+                Resource: !GetAtt DsqlCluster.ResourceArn
+
+  DomainRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DomainRuntime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: OwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt DomainLogGroup.Arn
+              - Sid: ApplicationDatabase
+                Effect: Allow
+                Action: dsql:DbConnect
+                Resource: !GetAtt DsqlCluster.ResourceArn
+              - Sid: InvokeNotificationEmitter
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt NotificationsFunction.Arn
+
+  PhotosRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PhotosRuntime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: OwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt PhotosLogGroup.Arn
+              - Sid: ApplicationDatabase
+                Effect: Allow
+                Action: dsql:DbConnect
+                Resource: !GetAtt DsqlCluster.ResourceArn
+              - Sid: PhotographObjects
+                Effect: Allow
+                Action: [s3:GetObject, s3:PutObject, s3:DeleteObject]
+                Resource: !Sub '${MediaBucket.Arn}/foodie/*'
+              - Sid: InvokeNotificationEmitter
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt NotificationsFunction.Arn
+
+  NotificationsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: NotificationsRuntime
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: OwnLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt NotificationsLogGroup.Arn
+              - Sid: ApplicationDatabase
+                Effect: Allow
+                Action: dsql:DbConnect
+                Resource: !GetAtt DsqlCluster.ResourceArn
+
+  AccountsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${DeploymentName}-accounts'
+      Description: Cuentas, autenticacion y extensiones de suscripciones del grupo.
+      Runtime: python3.14
+      Architectures: [x86_64]
+      Handler: accounts.handler
+      Role: !GetAtt AccountsRole.Arn
+      MemorySize: 512
+      Timeout: 28
+      Code:
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref AccountsCodeKey
+      Environment:
+        Variables:
+          ENVIRONMENT: production
+          COOKIE_SECURE: 'true'
+          JWT_SECRET: !Ref JwtSecret
+          CORS_ORIGINS: !Sub 'https://${Distribution.DomainName}'
+          DATABASE_BACKEND: aurora-dsql
+          AURORA_DSQL_ENDPOINT: !GetAtt DsqlCluster.Endpoint
+          AURORA_DSQL_USER: app_user
+          AURORA_DSQL_DATABASE: postgres
+          DATABASE_POOL_SIZE: '1'
+          DATABASE_MAX_OVERFLOW: '0'
+          DATABASE_POOL_RECYCLE_SECONDS: '3300'
+          MEDIA_STORAGE_BACKEND: s3
+          MEDIA_S3_BUCKET: !Ref MediaBucket
+          MEDIA_S3_REGION: !Ref 'AWS::Region'
+          MEDIA_S3_PREFIX: foodie
+          # Cuentas no produce actividades ni tiene permiso de invocar al emisor.
+          NOTIFICATIONS_ENABLED: 'false'
+          VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+
+  DomainFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${DeploymentName}-domain'
+      Description: Restaurantes, actividades, resenas, evaluaciones, comentarios y feed.
+      Runtime: python3.14
+      Architectures: [x86_64]
+      Handler: domain.handler
+      Role: !GetAtt DomainRole.Arn
+      MemorySize: 512
+      Timeout: 28
+      Code:
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DomainCodeKey
+      Environment:
+        Variables:
+          ENVIRONMENT: production
+          COOKIE_SECURE: 'true'
+          JWT_SECRET: !Ref JwtSecret
+          CORS_ORIGINS: !Sub 'https://${Distribution.DomainName}'
+          DATABASE_BACKEND: aurora-dsql
+          AURORA_DSQL_ENDPOINT: !GetAtt DsqlCluster.Endpoint
+          AURORA_DSQL_USER: app_user
+          AURORA_DSQL_DATABASE: postgres
+          DATABASE_POOL_SIZE: '1'
+          DATABASE_MAX_OVERFLOW: '0'
+          DATABASE_POOL_RECYCLE_SECONDS: '3300'
+          MEDIA_STORAGE_BACKEND: s3
+          MEDIA_S3_BUCKET: !Ref MediaBucket
+          MEDIA_S3_REGION: !Ref 'AWS::Region'
+          MEDIA_S3_PREFIX: foodie
+          NOTIFICATIONS_ENABLED: !Ref NotificationsEnabled
+          NOTIFICATIONS_FUNCTION_NAME: !Ref NotificationsFunction
+
+  PhotosFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${DeploymentName}-photos'
+      Description: Recepcion y acceso autorizado a fotografias privadas en S3.
+      Runtime: python3.14
+      Architectures: [x86_64]
+      Handler: photos.handler
+      Role: !GetAtt PhotosRole.Arn
+      MemorySize: 1024
+      Timeout: 28
+      Code:
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref PhotosCodeKey
+      Environment:
+        Variables:
+          ENVIRONMENT: production
+          COOKIE_SECURE: 'true'
+          JWT_SECRET: !Ref JwtSecret
+          CORS_ORIGINS: !Sub 'https://${Distribution.DomainName}'
+          DATABASE_BACKEND: aurora-dsql
+          AURORA_DSQL_ENDPOINT: !GetAtt DsqlCluster.Endpoint
+          AURORA_DSQL_USER: app_user
+          AURORA_DSQL_DATABASE: postgres
+          DATABASE_POOL_SIZE: '1'
+          DATABASE_MAX_OVERFLOW: '0'
+          DATABASE_POOL_RECYCLE_SECONDS: '3300'
+          MEDIA_STORAGE_BACKEND: s3
+          MEDIA_S3_BUCKET: !Ref MediaBucket
+          MEDIA_S3_REGION: !Ref 'AWS::Region'
+          MEDIA_S3_PREFIX: foodie
+          # El evento Lambda incluye multipart codificado en base64 (limite 6 MB).
+          MEDIA_MAX_UPLOAD_BYTES: '4000000'
+          NOTIFICATIONS_ENABLED: !Ref NotificationsEnabled
+          NOTIFICATIONS_FUNCTION_NAME: !Ref NotificationsFunction
+
+  NotificationsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${DeploymentName}-notifications'
+      Description: Punto de extension del emisor Web Push, sin endpoint publico.
+      Runtime: python3.14
+      Architectures: [x86_64]
+      Handler: notifications.handler
+      Role: !GetAtt NotificationsRole.Arn
+      MemorySize: 256
+      # Menor que el timeout HTTP para devolver errores controlados al productor.
+      Timeout: 15
+      Code:
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref NotificationsCodeKey
+      Environment:
+        Variables:
+          DATABASE_BACKEND: aurora-dsql
+          AURORA_DSQL_ENDPOINT: !GetAtt DsqlCluster.Endpoint
+          AURORA_DSQL_USER: app_user
+          AURORA_DSQL_DATABASE: postgres
+          DATABASE_POOL_SIZE: '1'
+          DATABASE_MAX_OVERFLOW: '0'
+          DATABASE_POOL_RECYCLE_SECONDS: '3300'
+          NOTIFICATIONS_ENABLED: !Ref NotificationsEnabled
+          VAPID_PRIVATE_KEY: !Ref VapidPrivateKey
+          VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+          VAPID_SUBJECT: !Ref VapidSubject
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub '${DeploymentName}-api'
+      Description: La sesion y la autorizacion se validan dentro de FastAPI.
+      ProtocolType: HTTP
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiLogGroup.Arn
+        # Sin headers, querystrings, cookies, cuerpos ni errores internos.
+        Format: >-
+          {"requestId":"$context.requestId","routeKey":"$context.routeKey","status":"$context.status","responseLength":"$context.responseLength","integrationStatus":"$context.integrationStatus"}
+
+  AccountsIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AccountsFunction.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 29000
+  DomainIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt DomainFunction.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 29000
+  PhotosIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt PhotosFunction.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 29000
+
+  AccountsInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AccountsFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+  DomainInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DomainFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+  PhotosInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PhotosFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !Sub 'arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+
+  # Las rutas exactas tienen prioridad sobre $default. No usar un proxy general
+  # /photos/{proxy+}: GET/POST /photos/{photo_id}/comments pertenecen al dominio.
+  DomainDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: $default
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${DomainIntegration}'
+  AuthRootRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /api/v1/auth
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${AccountsIntegration}'
+  AuthProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /api/v1/auth/{proxy+}
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${AccountsIntegration}'
+  UsersRootRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /api/v1/users
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${AccountsIntegration}'
+  UsersProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /api/v1/users/{proxy+}
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${AccountsIntegration}'
+  CountriesRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /api/v1/countries
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${AccountsIntegration}'
+  PhotoUploadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: POST /api/v1/photos
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${PhotosIntegration}'
+  PhotoMetadataRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /api/v1/photos/{photo_id}
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${PhotosIntegration}'
+  PhotoContentRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: GET /api/v1/photos/{photo_id}/content
+      AuthorizationType: NONE
+      Target: !Sub 'integrations/${PhotosIntegration}'
+
+  FrontendOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${DeploymentName}-frontend-oac'
+        Description: CloudFront firma el acceso al bucket privado mediante SigV4.
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  ApiOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub '${DeploymentName}-api-all-except-host'
+        Comment: Conservar cookies, Origin, Authorization y querystrings; Host es el de API Gateway.
+        CookiesConfig:
+          CookieBehavior: all
+        QueryStringsConfig:
+          QueryStringBehavior: all
+        HeadersConfig:
+          HeaderBehavior: allExcept
+          Headers: [host]
+
+  StaticAssetsCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${DeploymentName}-static-assets'
+        Comment: Respetar Cache-Control del publicador; nunca imponer un TTL minimo.
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 31536000
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+
+  SpaNavigationFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub '${DeploymentName}-spa-navigation'
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Reescribir navegacion React, nunca solicitudes API ni archivos estaticos.
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          var uri = request.uri;
+          var accept = request.headers.accept;
+          var isNavigation = request.method === 'GET' || request.method === 'HEAD';
+          var wantsHtml = accept && accept.value.indexOf('text/html') !== -1;
+          var isApi = uri === '/api' || uri.indexOf('/api/') === 0 || uri === '/healthz';
+          var isStatic = uri.indexOf('/assets/') === 0 || uri.indexOf('/.well-known/') === 0;
+          var lastSegment = uri.substring(uri.lastIndexOf('/') + 1);
+          if (isNavigation && wantsHtml && !isApi && !isStatic && lastSegment.indexOf('.') === -1) {
+            request.uri = '/index.html';
+          }
+          return request;
+        }
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Retain
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub '${DeploymentName}: frontend privado y API en el mismo origen'
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: frontend
+            DomainName: !GetAtt FrontendBucket.RegionalDomainName
+            OriginAccessControlId: !Ref FrontendOriginAccessControl
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+          - Id: api
+            DomainName: !Sub '${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}'
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: frontend
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          # CachingDisabled: index, manifest, SW y rutas React siempre frescos.
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaNavigationFunction.FunctionARN
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+          - PathPattern: /api
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+          # El frontend docente consulta esta ruta fuera del prefijo /api.
+          - PathPattern: /healthz
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: !Ref ApiOriginRequestPolicy
+          - PathPattern: /assets/*
+            TargetOriginId: frontend
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: !Ref StaticAssetsCachePolicy
+        # No CustomErrorResponses: un 401/403/404/500 de API no devuelve index.html.
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowThisDistributionOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${FrontendBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}'
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt FrontendBucket.Arn
+              - !Sub '${FrontendBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+
+Outputs:
+  CloudFrontUrl:
+    Value: !Sub 'https://${Distribution.DomainName}'
+  DistributionId:
+    Value: !Ref Distribution
+  FrontendBucketName:
+    Value: !Ref FrontendBucket
+  MediaBucketName:
+    Value: !Ref MediaBucket
+  DsqlEndpoint:
+    Value: !GetAtt DsqlCluster.Endpoint
+  DsqlClusterArn:
+    Value: !GetAtt DsqlCluster.ResourceArn
+  AccountsRoleArn:
+    Value: !GetAtt AccountsRole.Arn
+  DomainRoleArn:
+    Value: !GetAtt DomainRole.Arn
+  PhotosRoleArn:
+    Value: !GetAtt PhotosRole.Arn
+  NotificationsRoleArn:
+    Value: !GetAtt NotificationsRole.Arn
+  AccountsFunctionName:
+    Value: !Ref AccountsFunction
+  DomainFunctionName:
+    Value: !Ref DomainFunction
+  PhotosFunctionName:
+    Value: !Ref PhotosFunction
+  NotificationsFunctionName:
+    Value: !Ref NotificationsFunction
+  ApiUrl:
+    Value: !GetAtt HttpApi.ApiEndpoint

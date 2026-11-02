@@ -1,0 +1,4 @@
+# El stub usa exclusivamente la biblioteca estándar.
+# El grupo agrega su biblioteca Web Push y las dependencias de su persistencia.
+# Si reutiliza el acceso DSQL compartido: -r database.txt
+# No instalar FastAPI, Mangum ni Pillow en el emisor.

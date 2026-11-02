@@ -1,0 +1,3 @@
+-r database.txt
+fastapi>=0.115,<1
+mangum>=0.19,<1

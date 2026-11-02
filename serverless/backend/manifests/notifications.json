@@ -1,0 +1,9 @@
+{
+  "handler": "notifications.handler",
+  "files": [
+    "app/__init__.py",
+    "app/notification_event.py",
+    "notifications.py"
+  ],
+  "requirements": "requirements/notifications.txt"
+}

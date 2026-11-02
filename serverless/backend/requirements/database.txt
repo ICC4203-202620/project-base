@@ -1,0 +1,9 @@
+# Compartidas por las funciones HTTP y el mantenimiento local.
+boto3>=1.35,<2
+certifi>=2024.7.4
+psycopg[binary]>=3.2,<4
+aurora-dsql-python-connector[psycopg]>=0.2.7,<1
+aurora-dsql-sqlalchemy>=1.1,<2
+sqlalchemy>=2.0,<3
+pydantic-settings>=2.7,<3
+PyJWT>=2.10,<3

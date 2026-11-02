@@ -1,0 +1,10 @@
+.build/
+.deployment/
+.venv/
+config.local.json
+__pycache__/
+.pytest_cache/
+*.pyc
+*.zip
+.env
+.env.*

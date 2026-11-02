@@ -1,0 +1,2 @@
+-r database.txt
+argon2-cffi>=23.1,<26

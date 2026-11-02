@@ -1,0 +1,14 @@
+{
+  "deployment_name": "foodie-grupo-xx",
+  "region": "sa-east-1",
+  "expected_account_id": "",
+  "profile": null,
+  "frontend_dir": "../frontend",
+  "frontend_build_dir": "dist",
+  "package_manager": "npm",
+  "frontend_environment": {},
+  "service_worker_files": ["sw.js", "service-worker.js"],
+  "notifications_enabled": false,
+  "vapid_public_key": "",
+  "vapid_subject": ""
+}

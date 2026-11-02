@@ -1,0 +1,3 @@
+-r http.txt
+pillow>=11,<13
+python-multipart>=0.0.20,<1
